@@ -1,6 +1,6 @@
 # Room data files
 server/room_data/
-*.json
+
 
 # Python
 __pycache__/
