@@ -772,6 +772,6 @@ async def get_rooms_status():
         return {"error": str(e)}
 
 try:
-    app.mount("/", StaticFiles(directory="static"), name="static")
+    app.mount("/static", StaticFiles(directory="static"), name="static")
 except RuntimeError as e:
     logging.error(f"Error mounting static files: {e}")
