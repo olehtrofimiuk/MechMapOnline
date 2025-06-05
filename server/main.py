@@ -198,7 +198,12 @@ app = FastAPI(lifespan=lifespan)
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],  # React dev server
+    allow_origins=[
+        "http://localhost:3000", 
+        "http://127.0.0.1:3000",
+        "http://mechmaponline.fun:3000",
+        "https://mechmaponline.fun:3000"
+    ],  # React dev server + production domain
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
