@@ -23,6 +23,14 @@ const MainWindow = () => {
         username: null
     });
 
+    // Get API base URL based on environment
+    const getApiBaseUrl = () => {
+        if (process.env.NODE_ENV === 'production') {
+            return window.location.origin; // Use same domain as served from
+        }
+        return 'http://localhost:8000'; // Development server
+    };
+
     // Check for existing authentication on component mount
     useEffect(() => {
         const token = localStorage.getItem('auth_token');
@@ -30,7 +38,7 @@ const MainWindow = () => {
         
         if (token && username) {
             // Verify token with server
-            fetch('http://localhost:8000/api/verify-token', {
+            fetch(`${getApiBaseUrl()}/api/verify-token`, {
                 method: 'GET',
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -79,7 +87,7 @@ const MainWindow = () => {
         // Only initialize socket after auth state is determined
         if (authState.isAuthenticated === null) return;
 
-        const sock = io("http://localhost:8000", {
+        const sock = io(getApiBaseUrl(), {
             path: "/ws/socket.io/",
             transports: ['websocket'],
           });
@@ -134,7 +142,7 @@ const MainWindow = () => {
     const handleLogout = useCallback(async () => {
         if (authState.token) {
             try {
-                await fetch('http://localhost:8000/api/logout', {
+                await fetch(`${getApiBaseUrl()}/api/logout`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${authState.token}`

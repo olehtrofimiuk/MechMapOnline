@@ -34,6 +34,14 @@ const AuthManager = ({ onAuthSuccess }) => {
   const [success, setSuccess] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
+  // Get API base URL based on environment
+  const getApiBaseUrl = () => {
+    if (process.env.NODE_ENV === 'production') {
+      return window.location.origin; // Use same domain as served from
+    }
+    return 'http://localhost:8000'; // Development server
+  };
+
   const handleTabChange = (event, newValue) => {
     setCurrentTab(newValue);
     setError('');
@@ -90,7 +98,7 @@ const AuthManager = ({ onAuthSuccess }) => {
 
     try {
       const endpoint = currentTab === 0 ? '/api/login' : '/api/register';
-      const response = await fetch(`http://localhost:8000${endpoint}`, {
+      const response = await fetch(`${getApiBaseUrl()}${endpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
