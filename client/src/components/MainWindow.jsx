@@ -669,8 +669,8 @@ const MainWindow = () => {
                 </Box>
             </Box>
 
-            {/* Connected Users Info */}
-            {connectedUsers.length > 1 && (
+            {/* Connected Users Info with Colors */}
+            {(connectedUsers.length >= 1 || roomData) && (
                 <Box sx={{ 
                     px: 2, 
                     py: 1, 
@@ -680,15 +680,67 @@ const MainWindow = () => {
                     borderBottom: '1px solid var(--neotech-primary)',
                     boxShadow: 'inset 0 0 10px rgba(0, 0, 0, 0.5)'
                 }}>
-                    <Typography variant="body2" sx={{ 
-                        fontSize: '12px',
-                        color: 'var(--neotech-text-secondary)',
-                        fontFamily: "'Rajdhani', monospace"
+                    <Box sx={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: 1, 
+                        flexWrap: 'wrap' 
                     }}>
-                        Connected users: {connectedUsers.map(user => 
-                            `${user.name}${user.is_authenticated ? ' ✓' : ''}`
-                        ).join(', ')}
-                    </Typography>
+                        <Typography variant="body2" sx={{ 
+                            fontSize: '12px',
+                            color: 'var(--neotech-text-secondary)',
+                            fontFamily: "'Rajdhani', monospace",
+                            marginRight: 1
+                        }}>
+                            Connected users:
+                        </Typography>
+                        {(connectedUsers.length > 0 ? connectedUsers : [{ name: authState.username || roomData?.userName || 'You', is_authenticated: authState.isAuthenticated }]).map(user => {
+                            // Generate the same color as in HexGrid
+                            const getColorForUser = (name) => {
+                                let hash1 = 0;
+                                let hash2 = 0;
+                                for (let i = 0; i < name.length; i++) {
+                                    hash1 = ((hash1 << 5) - hash1 + name.charCodeAt(i)) & 0xffffffff;
+                                    hash2 = ((hash2 << 3) - hash2 + name.charCodeAt(i) * 7) & 0xffffffff;
+                                }
+                                const hue = Math.abs(hash1) % 360;
+                                const saturation = 60 + (Math.abs(hash2) % 30);
+                                const lightness = 45 + (Math.abs(hash1 + hash2) % 25);
+                                return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+                            };
+                            
+                            const userColor = getColorForUser(user.name);
+                            
+                            return (
+                                <Box key={user.name} sx={{ 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    gap: 0.5,
+                                    px: 1,
+                                    py: 0.5,
+                                    borderRadius: 1,
+                                    background: 'rgba(0, 0, 0, 0.3)',
+                                    border: `1px solid ${userColor}`,
+                                }}>
+                                    <Box sx={{
+                                        width: 12,
+                                        height: 12,
+                                        borderRadius: '50%',
+                                        backgroundColor: userColor,
+                                        border: '1px solid white'
+                                    }} />
+                                    <Typography variant="body2" sx={{ 
+                                        fontSize: '11px',
+                                        color: userColor,
+                                        fontFamily: "'Rajdhani', monospace",
+                                        fontWeight: 600
+                                    }}>
+                                        {user.name}{user.is_authenticated ? ' ✓' : ''}
+                                    </Typography>
+                                </Box>
+                            );
+                        })}
+                    </Box>
                 </Box>
             )}
 
@@ -705,6 +757,7 @@ const MainWindow = () => {
                     roomData={roomData}
                     initialHexData={roomData.hexData}
                     initialLines={roomData.lines}
+                    connectedUsers={connectedUsers}
                 />
             </Box>
 

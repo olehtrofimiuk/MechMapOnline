@@ -226,24 +226,28 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
       display: 'flex', 
       alignItems: 'center', 
       justifyContent: 'center', 
-      minHeight: '100vh',
+      height: '100vh',
+      overflow: 'hidden',
       backgroundImage: 'url(/static/background.jpg)',
       backgroundSize: 'cover',
       backgroundPosition: 'center',
       backgroundRepeat: 'no-repeat',
-      padding: 2
+      padding: 1
     }}>
       <Paper sx={{ 
         maxWidth: 600, 
         width: '100%', 
-        padding: 4,
+        maxHeight: '95vh',
+        overflow: 'auto',
+        padding: 3,
         borderRadius: 2,
         boxShadow: 3
       }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="h4" sx={{ 
             fontWeight: 'bold',
-            color: 'primary.main'
+            color: 'primary.main',
+            fontSize: { xs: '1.5rem', sm: '2rem' }
           }}>
             🗺️ Hex Map Online
           </Typography>
@@ -262,7 +266,7 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
 
         <Typography variant="body1" sx={{ 
           textAlign: 'center', 
-          mb: 3,
+          mb: 2,
           color: 'text.secondary'
         }}>
           Collaborative hex grid mapping tool
@@ -289,7 +293,7 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
 
         {/* User Name Input - Only for anonymous users */}
         {!authState.isAuthenticated && (
-          <Box sx={{ mb: 3 }}>
+          <Box sx={{ mb: 2 }}>
             <TextField
               fullWidth
               label="Your Name"
@@ -310,7 +314,7 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
         )}
 
         {/* Room Name Input */}
-        <Box sx={{ mb: 3 }}>
+        <Box sx={{ mb: 2 }}>
           <TextField
             fullWidth
             label="Room Name (Optional)"
@@ -325,13 +329,13 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
 
         {/* Error/Success Messages */}
         {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
+          <Alert severity="error" sx={{ mb: 1.5 }}>
             {error}
           </Alert>
         )}
         
         {success && (
-          <Alert severity="success" sx={{ mb: 2 }}>
+          <Alert severity="success" sx={{ mb: 1.5 }}>
             {success}
           </Alert>
         )}
@@ -344,21 +348,21 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
           onClick={handleCreateRoom}
           disabled={(!authState.isAuthenticated && !userName.trim()) || isLoading || !isConnected}
           startIcon={isLoading ? <CircularProgress size={20} /> : <AddIcon />}
-          sx={{ mb: 2 }}
+          sx={{ mb: 1.5 }}
         >
           {isLoading ? 'Creating...' : 'Create New Room'}
         </Button>
 
-        <Divider sx={{ my: 3 }}>
+        <Divider sx={{ my: 2 }}>
           <Chip label="OR" />
         </Divider>
 
         {/* Join Room Section */}
-        <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold' }}>
+        <Typography variant="h6" sx={{ mb: 1.5, fontWeight: 'bold' }}>
           Search Rooms by ID or Name
         </Typography>
 
-        <Box sx={{ mb: 3 }}>
+        <Box sx={{ mb: 2 }}>
           <TextField
             fullWidth
             label="Search by Room ID or Name"
@@ -396,12 +400,12 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
             </Box>
             
             {searchQuery.trim() && filteredRooms.length === 0 && (
-              <Alert severity="info" sx={{ mb: 2 }}>
+              <Alert severity="info" sx={{ mb: 1.5 }}>
                 No rooms found matching "{searchQuery}". Try a different search term or create a new room.
               </Alert>
             )}
             
-            <Paper variant="outlined" sx={{ maxHeight: 300, overflow: 'auto' }}>
+            <Paper variant="outlined" sx={{ maxHeight: 250, overflow: 'auto' }}>
               <List dense>
                 {filteredRooms.map((room) => (
                   <ListItem 

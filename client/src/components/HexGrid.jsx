@@ -15,10 +15,27 @@ import AdsClickIcon from '@mui/icons-material/AdsClick';
 
 // Helper function to calculate distance between two hexes (axial coordinates)
 const calculateDistance = (hexA, hexB) => {
-  return (Math.abs(hexA.q - hexB.q) 
-        + Math.abs(hexA.q + hexA.r - hexB.q - hexB.r) 
-        + Math.abs(hexA.r - hexB.r)) / 2;
-  // Alternate cube distance: (Math.abs(hexA.q - hexB.q) + Math.abs(hexA.r - hexB.r) + Math.abs(hexA.s - hexB.s)) / 2;
+  const dx = hexA.q - hexB.q;
+  const dy = hexA.r - hexB.r;
+  return Math.sqrt(dx * dx + dy * dy);
+};
+
+// Generate a consistent color for each user based on their username
+const getColorForUser = (name) => {
+  // Create a more random hash by using multiple passes
+  let hash1 = 0;
+  let hash2 = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash1 = ((hash1 << 5) - hash1 + name.charCodeAt(i)) & 0xffffffff;
+    hash2 = ((hash2 << 3) - hash2 + name.charCodeAt(i) * 7) & 0xffffffff;
+  }
+  
+  // Use both hashes to create more varied colors
+  const hue = Math.abs(hash1) % 360;
+  const saturation = 60 + (Math.abs(hash2) % 30); // 60-90%
+  const lightness = 45 + (Math.abs(hash1 + hash2) % 25); // 45-70%
+  
+  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
 };
 
 const presetColors = [
@@ -52,6 +69,9 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
   // Erasing State
   const [isErasing, setIsErasing] = useState(false); // For brush-like erasing
 
+  // Other users' cursors state
+  const [otherUsersCursors, setOtherUsersCursors] = useState({}); // { userName: { hex_key, mode, timestamp } }
+
   const svgRef = useRef(null);
 
   // Socket listeners for multiplayer updates
@@ -82,15 +102,57 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
       setLines(data.lines);
     };
 
+    // Listen for other users' cursor movements
+    const handleCursorMoved = (data) => {
+      const { user_name, hex_key, mode } = data;
+      if (user_name) {
+        if (hex_key === null) {
+          // Remove cursor when hex_key is null (user left the map area)
+          setOtherUsersCursors(prevCursors => {
+            const updated = { ...prevCursors };
+            delete updated[user_name];
+            return updated;
+          });
+        } else {
+          // Update cursor position
+          const timestamp = Date.now();
+          setOtherUsersCursors(prevCursors => ({
+            ...prevCursors,
+            [user_name]: {
+              hex_key,
+              mode,
+              timestamp
+            }
+          }));
+        }
+      }
+    };
+
+    // Listen for users leaving to clean up their cursors
+    const handleUserLeft = (data) => {
+      const { user_name } = data;
+      if (user_name) {
+        setOtherUsersCursors(prevCursors => {
+          const updated = { ...prevCursors };
+          delete updated[user_name];
+          return updated;
+        });
+      }
+    };
+
     socket.on('hex_updated', handleHexUpdated);
     socket.on('line_added', handleLineAdded);
     socket.on('hex_erased', handleHexErased);
+    socket.on('cursor_moved', handleCursorMoved);
+    socket.on('user_left', handleUserLeft);
 
     // Cleanup listeners
     return () => {
       socket.off('hex_updated', handleHexUpdated);
       socket.off('line_added', handleLineAdded);
       socket.off('hex_erased', handleHexErased);
+      socket.off('cursor_moved', handleCursorMoved);
+      socket.off('user_left', handleUserLeft);
     };
   }, [socket, roomData]);
 
@@ -103,6 +165,24 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
   useEffect(() => {
     setLines(initialLines);
   }, [initialLines]);
+
+  // Clean up old cursor positions periodically
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      setOtherUsersCursors(prevCursors => {
+        const updated = { ...prevCursors };
+        Object.keys(updated).forEach(userName => {
+          if (now - updated[userName].timestamp > 3000) {
+            delete updated[userName];
+          }
+        });
+        return Object.keys(updated).length !== Object.keys(prevCursors).length ? updated : prevCursors;
+      });
+    }, 1000); // Check every second
+
+    return () => clearInterval(interval);
+  }, []);
 
   const startingHex = {q:1, r:1}
   const layout = useMemo(() => {
@@ -651,6 +731,13 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
                 onMouseUp={handleSvgMouseUp}
                 onMouseLeave={() => { 
                     setHoveredHexKey(null); 
+                    // Clear cursor for other users when mouse leaves the map
+                    if (socket && roomData) {
+                      socket.emit('cursor_update', {
+                        hex_key: null,
+                        mode: interactionMode
+                      });
+                    }
                 }}
                 onContextMenu={(e) => e.preventDefault()}
               >
@@ -782,6 +869,55 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
                         style={{pointerEvents: 'none'}}
                     />
                   )}
+
+                  {/* Render other users' cursors */}
+                  {Object.entries(otherUsersCursors).map(([userName, cursorData]) => {
+                    const hex = layout.hexes.find(h => h.key === cursorData.hex_key);
+                    if (!hex) return null;
+
+                    const userColor = getColorForUser(userName);
+                    const isTimedOut = Date.now() - cursorData.timestamp > 3000;
+                    
+                    if (isTimedOut) return null;
+
+                    return (
+                      <g key={`cursor-${userName}`} style={{pointerEvents: 'none'}}>
+                        {/* Cursor circle */}
+                        <path
+                            d={`M ${hex.centerX-hexSize} ${hex.centerY} 
+                               L ${hex.centerX - hexSize/2} ${hex.centerY + Math.sqrt(3) *hexSize/2}
+                               L ${hex.centerX + hexSize/2} ${hex.centerY + Math.sqrt(3) *hexSize/2}
+                               L ${hex.centerX + hexSize} ${hex.centerY}
+                               L ${hex.centerX + hexSize/2} ${hex.centerY - Math.sqrt(3) *hexSize/2}
+                               L ${hex.centerX - hexSize/2} ${hex.centerY - Math.sqrt(3) *hexSize/2}
+                               L ${hex.centerX - hexSize} ${hex.centerY}
+                               Z`}
+                            fill="none"
+                            stroke={userColor}
+                            
+                            strokeWidth="10"
+                          />
+                        
+                        {/* Mode indicator */}
+        
+                        
+                        {/* Username label */}
+                        <text 
+                          x={hex.centerX+120} 
+                          y={hex.centerY - 120} 
+                          textAnchor="middle" 
+                          fontSize="44" 
+                          fontWeight="bold"
+                          fill={userColor}
+                          stroke="black" 
+                          strokeWidth="12"
+                          paintOrder="stroke"
+                        >
+                          {userName}
+                        </text>
+                      </g>
+                    );
+                  })}
                 </g>
                 <Arrow 
                   color={selectedColor} 
