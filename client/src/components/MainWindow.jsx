@@ -4,6 +4,11 @@ import { Box, Typography, Chip, Button, Alert, Snackbar, CircularProgress } from
 import ExitToAppIcon from '@mui/icons-material/ExitToApp';
 import GroupIcon from '@mui/icons-material/Group';
 import LogoutIcon from '@mui/icons-material/Logout';
+import SaveIcon from '@mui/icons-material/Save';
+import FolderOpenIcon from '@mui/icons-material/FolderOpen';
+import GetAppIcon from '@mui/icons-material/GetApp';
+import PublishIcon from '@mui/icons-material/Publish';
+import HelpIcon from '@mui/icons-material/Help';
 
 import HexGrid from './HexGrid';
 import RoomManager from './RoomManager';
@@ -256,6 +261,133 @@ const MainWindow = () => {
         setShowActivityMessage(false);
     };
 
+    // Save Room Data to File
+    const handleSaveRoom = useCallback(() => {
+        if (!roomData) return;
+
+        // Add a small delay to ensure all state updates have been processed
+        setTimeout(() => {
+            const dataToSave = {
+                roomName: roomData.roomName,
+                roomId: roomData.roomId,
+                hexData: roomData.hexData,
+                lines: roomData.lines,
+                savedAt: new Date().toISOString()
+            };
+
+            const blob = new Blob([JSON.stringify(dataToSave, null, 2)], {
+                type: 'application/json'
+            });
+
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `${roomData.roomName || roomData.roomId}_map.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+
+            setUserActivity(`Room saved as ${link.download}`);
+            setShowActivityMessage(true);
+        }, 200); // 200ms delay to ensure state updates are complete
+    }, [roomData]);
+
+    // Load Room Data from File
+    const handleLoadRoom = useCallback(() => {
+        if (!socket.current || !roomData) return;
+
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const importedData = JSON.parse(e.target.result);
+                    
+                    // Validate the imported data structure
+                    if (importedData.hexData && importedData.lines) {
+                        // First, clear all existing hex data by resetting them to default
+                        Object.keys(roomData.hexData).forEach(hexKey => {
+                            if (roomData.hexData[hexKey].fillColor !== 'lightgray') {
+                                socket.current.emit('hex_update', {
+                                    hex_key: hexKey,
+                                    fill_color: 'lightgray'
+                                });
+                            }
+                        });
+
+                        // Clear all existing lines
+                        if (roomData.lines && roomData.lines.length > 0) {
+                            socket.current.emit('clear_lines');
+                        }
+
+                        // Update local room data with cleared state first
+                        setRoomData(prev => ({
+                            ...prev,
+                            hexData: Object.keys(prev.hexData).reduce((acc, key) => {
+                                acc[key] = { ...prev.hexData[key], fillColor: 'lightgray' };
+                                return acc;
+                            }, {}),
+                            lines: []
+                        }));
+
+                        // Wait a moment for clearing to sync, then load new data
+                        setTimeout(() => {
+                            // Update local room data with imported data
+                            setRoomData(prev => ({
+                                ...prev,
+                                hexData: importedData.hexData,
+                                lines: importedData.lines
+                            }));
+
+                            // Sync hex data with other users
+                            Object.entries(importedData.hexData).forEach(([hexKey, hexInfo]) => {
+                                if (hexInfo.fillColor && hexInfo.fillColor !== 'lightgray') {
+                                    socket.current.emit('hex_update', {
+                                        hex_key: hexKey,
+                                        fill_color: hexInfo.fillColor
+                                    });
+                                }
+                            });
+
+                            // Sync lines with other users
+                            importedData.lines.forEach(line => {
+                                socket.current.emit('line_add', {
+                                    line: line
+                                });
+                            });
+                        }, 100);
+                        
+                        setUserActivity(`Room data loaded from ${file.name}`);
+                        setShowActivityMessage(true);
+                    } else {
+                        setUserActivity('Invalid room data file format');
+                        setShowActivityMessage(true);
+                    }
+                } catch (error) {
+                    setUserActivity('Error reading room data file');
+                    setShowActivityMessage(true);
+                }
+            };
+            reader.readAsText(file);
+        };
+        input.click();
+    }, [roomData]);
+
+
+
+    // Show Help
+    const handleHelp = useCallback(() => {
+        // This would open a help dialog or guide
+        setUserActivity('Help: Use tools on the left to paint and draw. Mouse wheel to zoom, right-click to pan.');
+        setShowActivityMessage(true);
+    }, []);
+
     // Show auth state loading
     if (authState.isAuthenticated === null) {
         return (
@@ -389,6 +521,87 @@ const MainWindow = () => {
                         />
                     )}
                 </Box>
+
+                {/* Action Buttons */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, position: 'relative', zIndex: 1 }}>
+                    <Button
+                        variant="outlined"
+                        size="small"
+                        onClick={handleSaveRoom}
+                        startIcon={<SaveIcon />}
+                        sx={{ 
+                            border: '1px solid var(--neotech-success)',
+                            color: 'var(--neotech-success)',
+                            background: 'rgba(0, 255, 136, 0.1)',
+                            fontFamily: "'Orbitron', monospace",
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            fontSize: '10px',
+                            minWidth: 'auto',
+                            px: 1,
+                            transition: 'all 0.3s ease',
+                            '&:hover': { 
+                                background: 'rgba(0, 255, 136, 0.2)',
+                                boxShadow: '0 0 10px rgba(0, 255, 136, 0.3)',
+                                transform: 'translateY(-1px)'
+                            }
+                        }}
+                    >
+                        Save
+                    </Button>
+                    <Button
+                        variant="outlined"
+                        size="small"
+                        onClick={handleLoadRoom}
+                        startIcon={<FolderOpenIcon />}
+                        sx={{ 
+                            border: '1px solid var(--neotech-warning)',
+                            color: 'var(--neotech-warning)',
+                            background: 'rgba(255, 170, 0, 0.1)',
+                            fontFamily: "'Orbitron', monospace",
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            fontSize: '10px',
+                            minWidth: 'auto',
+                            px: 1,
+                            transition: 'all 0.3s ease',
+                            '&:hover': { 
+                                background: 'rgba(255, 170, 0, 0.2)',
+                                boxShadow: '0 0 10px rgba(255, 170, 0, 0.3)',
+                                transform: 'translateY(-1px)'
+                            }
+                        }}
+                    >
+                        Load
+                    </Button>
+
+                    <Button
+                        variant="outlined"
+                        size="small"
+                        onClick={handleHelp}
+                        startIcon={<HelpIcon />}
+                        sx={{ 
+                            border: '1px solid var(--neotech-border)',
+                            color: 'var(--neotech-text-secondary)',
+                            background: 'rgba(0, 17, 34, 0.8)',
+                            fontFamily: "'Orbitron', monospace",
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            fontSize: '10px',
+                            minWidth: 'auto',
+                            px: 1,
+                            transition: 'all 0.3s ease',
+                            '&:hover': { 
+                                background: 'rgba(0, 255, 255, 0.2)',
+                                borderColor: 'var(--neotech-primary)',
+                                color: 'var(--neotech-primary)',
+                                boxShadow: 'var(--neotech-glow-small)'
+                            }
+                        }}
+                    >
+                        Help
+                    </Button>
+                </Box>
                 
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative', zIndex: 1 }}>
                     <Typography variant="body2" sx={{
@@ -482,10 +695,9 @@ const MainWindow = () => {
             {/* Hex Grid */}
             <Box sx={{ 
                 flex: 1,
-                backgroundImage: 'url(/static/cockpit.jpg)',
-                
+                backgroundImage: 'url(/static/cockpit2.png)',
                 backgroundSize: 'cover',
-                backgroundPosition: 'center',
+                backgroundPosition: 'left 160px center',
                 backgroundRepeat: 'no-repeat'
             }}>
                 <HexGrid 

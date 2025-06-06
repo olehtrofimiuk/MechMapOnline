@@ -24,6 +24,7 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
   const [userName, setUserName] = useState('');
   const [roomName, setRoomName] = useState('');
   const [roomId, setRoomId] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -180,6 +181,46 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
     }
   };
 
+  // Filter rooms based on search query (by ID or Name)
+  const filteredRooms = availableRooms.filter(room => {
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      room.room_id.toLowerCase().includes(query) ||
+      room.name.toLowerCase().includes(query)
+    );
+  });
+
+  const handleSearchJoin = () => {
+    if (!searchQuery.trim()) {
+      setError('Please enter a room ID or name to search');
+      return;
+    }
+
+    // First try to join by exact room ID (if it looks like an ID)
+    const exactMatch = availableRooms.find(room => 
+      room.room_id.toLowerCase() === searchQuery.toLowerCase()
+    );
+    
+    if (exactMatch) {
+      handleJoinRoom(exactMatch.room_id);
+      return;
+    }
+
+    // Then try to join by exact room name
+    const nameMatch = availableRooms.find(room => 
+      room.name.toLowerCase() === searchQuery.toLowerCase()
+    );
+    
+    if (nameMatch) {
+      handleJoinRoom(nameMatch.room_id);
+      return;
+    }
+
+    // If no exact match, try to join as room ID anyway
+    handleJoinRoom(searchQuery.toUpperCase());
+  };
+
   return (
     <Box sx={{ 
       display: 'flex', 
@@ -314,36 +355,27 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
 
         {/* Join Room Section */}
         <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold' }}>
-          Join Existing Room
+          Search Rooms by ID or Name
         </Typography>
 
-        <Box sx={{ display: 'flex', gap: 1, mb: 3 }}>
+        <Box sx={{ mb: 3 }}>
           <TextField
             fullWidth
-            label="Room ID"
-            value={roomId}
-            onChange={(e) => setRoomId(e.target.value.toUpperCase())}
+            label="Search by Room ID or Name"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
             variant="outlined"
             disabled={isLoading || !isConnected}
-            placeholder="e.g. ABC123"
+            placeholder="e.g. ABC123 or My Campaign Map"
             onKeyPress={(e) => {
               if (e.key === 'Enter' && 
                   (authState.isAuthenticated || userName.trim()) && 
-                  roomId.trim() && 
+                  searchQuery.trim() && 
                   isConnected) {
-                handleJoinRoom();
+                handleSearchJoin();
               }
             }}
           />
-          <Button
-            variant="outlined"
-            onClick={() => handleJoinRoom()}
-            disabled={(!authState.isAuthenticated && !userName.trim()) || !roomId.trim() || isLoading || !isConnected}
-            startIcon={<LoginIcon />}
-            sx={{ minWidth: 100 }}
-          >
-            Join
-          </Button>
         </Box>
 
         {/* Available Rooms */}
@@ -351,7 +383,7 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
           <Box>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
               <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                Available Rooms ({availableRooms.length})
+                {searchQuery.trim() ? `Search Results (${filteredRooms.length})` : `Available Rooms (${availableRooms.length})`}
               </Typography>
               <Button 
                 size="small" 
@@ -363,9 +395,15 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
               </Button>
             </Box>
             
+            {searchQuery.trim() && filteredRooms.length === 0 && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                No rooms found matching "{searchQuery}". Try a different search term or create a new room.
+              </Alert>
+            )}
+            
             <Paper variant="outlined" sx={{ maxHeight: 300, overflow: 'auto' }}>
               <List dense>
-                {availableRooms.map((room) => (
+                {filteredRooms.map((room) => (
                   <ListItem 
                     key={room.room_id}
                     button

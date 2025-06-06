@@ -135,14 +135,6 @@ const AuthManager = ({ onAuthSuccess }) => {
     }
   };
 
-  const handleSkipAuth = () => {
-    onAuthSuccess({
-      token: null,
-      username: null,
-      isAuthenticated: false
-    });
-  };
-
   return (
     <Box sx={{ 
       display: 'flex', 
@@ -249,26 +241,6 @@ const AuthManager = ({ onAuthSuccess }) => {
             }
           </Button>
         </form>
-
-        <Divider sx={{ my: 2 }}>
-          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-            OR
-          </Typography>
-        </Divider>
-
-        <Button
-          fullWidth
-          variant="outlined"
-          onClick={handleSkipAuth}
-          disabled={isLoading}
-          sx={{ 
-            borderStyle: 'dashed',
-            color: 'text.secondary',
-            borderColor: 'text.secondary'
-          }}
-        >
-          Continue as Anonymous
-        </Button>
 
         <Typography variant="caption" sx={{ 
           display: 'block',

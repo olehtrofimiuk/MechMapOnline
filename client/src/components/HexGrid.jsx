@@ -34,7 +34,7 @@ const presetColors = [
 
 const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomData, initialHexData = {}, initialLines = [] }) => {
   const [hexData, setHexData] = useState(initialHexData); 
-  const [selectedColor, setSelectedColor] = useState('#cccccc');
+  const [selectedColor, setSelectedColor] = useState('#0000FF');
   
   const [lines, setLines] = useState(initialLines);
   const [interactionMode, setInteractionMode] = useState('color'); // 'color', 'draw', 'erase'
@@ -351,9 +351,10 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
         borderRight: '2px solid var(--neotech-primary)',
         display: 'flex',
         flexDirection: 'column',
-        gap: 3,
-        overflowY: 'auto',
-        position: 'relative'
+        gap: 2,
+        overflow: 'hidden',
+        position: 'relative',
+        maxHeight: '100vh'
       }}>
         {/* Animated top border */}
         <Box sx={{
@@ -369,21 +370,23 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
         {/* Header */}
         <Typography variant="h5" sx={{ 
           fontWeight: 'bold', 
-          mb: 1,
+          mb: 0.5,
+          fontSize: '13px',
           color: 'var(--neotech-primary)',
           textShadow: 'var(--neotech-glow-small)',
           fontFamily: "'Orbitron', monospace",
           textTransform: 'uppercase',
-          letterSpacing: '2px'
+          letterSpacing: '2px',
+          flexShrink: 0
         }}>
           Hex Map Editor
         </Typography>
 
         {/* Tools Section */}
-        <Box>
+        <Box sx={{ flexShrink: 0 }}>
           <Typography variant="h6" sx={{ 
             mb: 1, 
-            fontSize: '14px', 
+            fontSize: '12px', 
             fontWeight: 'bold',
             color: 'var(--neotech-text-secondary)',
             fontFamily: "'Rajdhani', monospace",
@@ -401,7 +404,9 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
             sx={{ 
               '& .MuiToggleButton-root': { 
                 justifyContent: 'flex-start', 
-                px: 2,
+                px: 1.5,
+                py: 0.8,
+                fontSize: '11px',
                 border: '1px solid var(--neotech-border)',
                 background: 'rgba(0, 255, 255, 0.1)',
                 color: 'var(--neotech-text-secondary)',
@@ -420,112 +425,116 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
             }}
           >
             <ToggleButton value="select" aria-label="select mode">
-              <AdsClickIcon sx={{ mr: 1 }} />
+              <AdsClickIcon sx={{ mr: 1, fontSize: '16px' }} />
               Select
             </ToggleButton>
             <ToggleButton value="color" aria-label="color mode">
-              <BrushIcon sx={{ mr: 1 }} />
+              <BrushIcon sx={{ mr: 1, fontSize: '16px' }} />
               Paint
             </ToggleButton>
             <ToggleButton value="draw" aria-label="draw lines mode">
-              <TimelineIcon sx={{ mr: 1 }} />
+              <TimelineIcon sx={{ mr: 1, fontSize: '16px' }} />
               Measure
             </ToggleButton>
             <ToggleButton value="erase" aria-label="erase lines mode">
-              <DeleteOutlineIcon sx={{ mr: 1 }} />
+              <DeleteOutlineIcon sx={{ mr: 1, fontSize: '16px' }} />
               Erase
             </ToggleButton>
           </ToggleButtonGroup>
         </Box>
 
-        {/* Color Section */}
+        {/* Color Section - Make it scrollable if needed */}
         {(interactionMode === 'color' || interactionMode === 'draw') && (
-          <Box>
+          <Box sx={{ flexShrink: 0, display: 'flex', flexDirection: 'column', maxHeight: '60vh' }}>
             <Typography variant="h6" sx={{ 
               mb: 1, 
-              fontSize: '14px', 
+              fontSize: '12px', 
               fontWeight: 'bold',
               color: 'var(--neotech-text-secondary)',
               fontFamily: "'Rajdhani', monospace",
               textTransform: 'uppercase',
-              letterSpacing: '1px'
+              letterSpacing: '1px',
+              flexShrink: 0
             }}>
               Color
             </Typography>
             
-            {/* Current Color Display */}
-            <Box sx={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: 1, 
-              mb: 2,
-              p: 1,
-              background: 'rgba(0, 17, 34, 0.8)',
-              border: '1px solid var(--neotech-border)',
-              borderRadius: 1,
-              boxShadow: 'inset 0 0 10px rgba(0, 0, 0, 0.5)'
-            }}>
-              <Box
-                sx={{
-                  width: 40,
-                  height: 40,
-                  backgroundColor: selectedColor,
-                  border: '1px solid var(--neotech-primary)',
-                  borderRadius: 1,
-                  boxShadow: 'var(--neotech-glow-small)'
-                }}
-              />
-              <Typography variant="body2" sx={{ 
-                fontFamily: "'Courier New', monospace",
-                color: 'var(--neotech-accent)',
-                fontSize: '12px'
+            <Box sx={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
+              {/* Current Color Display */}
+              <Box sx={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: 1, 
+                mb: 1.5,
+                p: 1,
+                background: 'rgba(0, 17, 34, 0.8)',
+                border: '1px solid var(--neotech-border)',
+                borderRadius: 1,
+                boxShadow: 'inset 0 0 10px rgba(0, 0, 0, 0.5)'
               }}>
-                {selectedColor}
-              </Typography>
-            </Box>
-
-            {/* Color Palette */}
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px', mb: 2 }}>
-              {presetColors.map((color) => (
                 <Box
-                  key={color}
-                  onClick={() => setSelectedColor(color)}
                   sx={{
-                    width: 40,
-                    height: 40,
-                    backgroundColor: color,
-                    border: selectedColor === color ? '3px solid var(--neotech-primary)' : '1px solid var(--neotech-border)',
+                    width: 32,
+                    height: 32,
+                    backgroundColor: selectedColor,
+                    border: '1px solid var(--neotech-primary)',
                     borderRadius: 1,
-                    cursor: 'pointer',
-                    boxShadow: selectedColor === color ? 'var(--neotech-glow-medium)' : 'none',
-                    transition: 'all 0.3s ease',
-                    '&:hover': {
-                      borderColor: 'var(--neotech-primary)',
-                      boxShadow: 'var(--neotech-glow-small)',
-                      transform: 'translateY(-2px)'
-                    }
+                    boxShadow: 'var(--neotech-glow-small)'
                   }}
                 />
-              ))}
-            </Box>
+                <Typography variant="body2" sx={{ 
+                  fontFamily: "'Courier New', monospace",
+                  color: 'var(--neotech-accent)',
+                  fontSize: '10px'
+                }}>
+                  {selectedColor}
+                </Typography>
+              </Box>
 
-            {/* Color Picker */}
-            <Box sx={{
-              background: 'rgba(0, 17, 34, 0.8)',
-              border: '1px solid var(--neotech-border)',
-              borderRadius: 1,
-              padding: 1,
-              boxShadow: 'inset 0 0 10px rgba(0, 0, 0, 0.5)'
-            }}>
-              <HexColorPicker 
-                color={selectedColor} 
-                onChange={setSelectedColor} 
-                style={{ width: '100%', height: '120px' }}
-              />
+              {/* Color Palette */}
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px', mb: 1.5 }}>
+                {presetColors.map((color) => (
+                  <Box
+                    key={color}
+                    onClick={() => setSelectedColor(color)}
+                    sx={{
+                      width: 32,
+                      height: 32,
+                      backgroundColor: color,
+                      border: selectedColor === color ? '2px solid var(--neotech-primary)' : '1px solid var(--neotech-border)',
+                      borderRadius: 1,
+                      cursor: 'pointer',
+                      boxShadow: selectedColor === color ? 'var(--neotech-glow-medium)' : 'none',
+                      transition: 'all 0.3s ease',
+                      '&:hover': {
+                        borderColor: 'var(--neotech-primary)',
+                        boxShadow: 'var(--neotech-glow-small)',
+                        transform: 'translateY(-1px)'
+                      }
+                    }}
+                  />
+                ))}
+              </Box>
+
+              {/* Color Picker */}
+              <Box sx={{
+                background: 'rgba(0, 17, 34, 0.8)',
+                border: '1px solid var(--neotech-border)',
+                borderRadius: 1,
+                padding: 1,
+                boxShadow: 'inset 0 0 10px rgba(0, 0, 0, 0.5)'
+              }}>
+                <HexColorPicker 
+                  color={selectedColor} 
+                  onChange={setSelectedColor} 
+                  style={{ width: '100%', height: '100px' }}
+                />
+              </Box>
             </Box>
           </Box>
         )}
 
+   
         {/* Status/Info Section */}
         <Box sx={{ 
           p: 1, 
@@ -533,7 +542,8 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
           border: '1px solid var(--neotech-border)',
           borderRadius: 1,
           boxShadow: 'inset 0 0 10px rgba(0, 0, 0, 0.5)',
-          fontSize: '12px'
+          fontSize: '10px',
+          flexShrink: 0
         }}>
           {interactionMode === 'color' && lastColoredHexDetails && (
             <Typography variant="caption" sx={{ 
@@ -605,93 +615,6 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
         flexDirection: 'column',
         overflow: 'hidden'
       }}>
-        {/* Top Bar */}
-        <Box sx={{ 
-          display: 'flex', 
-          justifyContent: 'flex-end', 
-          alignItems: 'center', 
-          p: 1, 
-          borderBottom: '2px solid var(--neotech-primary)',
-          background: 'linear-gradient(135deg, rgba(0, 17, 34, 0.95), rgba(0, 8, 17, 0.98))',
-          boxShadow: '0 0 10px rgba(0, 255, 255, 0.3)',
-          position: 'relative'
-        }}>
-          {/* Animated bottom border */}
-          <Box sx={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: '2px',
-            background: 'linear-gradient(90deg, transparent, var(--neotech-primary), transparent)',
-            animation: 'neotech-scan 3s ease-in-out infinite reverse'
-          }} />
-          
-          <Box sx={{ display: 'flex', gap: 1, position: 'relative', zIndex: 1 }}>
-            <Typography variant="button" sx={{ 
-              px: 2, py: 1, 
-              background: 'linear-gradient(135deg, rgba(0, 255, 255, 0.2), rgba(0, 153, 204, 0.2))',
-              border: '1px solid var(--neotech-primary)',
-              borderRadius: 1,
-              cursor: 'pointer',
-              fontSize: '12px',
-              color: 'var(--neotech-primary)',
-              fontFamily: "'Orbitron', monospace",
-              fontWeight: 600,
-              textTransform: 'uppercase',
-              transition: 'all 0.3s ease',
-              '&:hover': {
-                background: 'linear-gradient(135deg, rgba(0, 255, 255, 0.3), rgba(0, 153, 204, 0.3))',
-                boxShadow: 'var(--neotech-glow-medium)',
-                transform: 'translateY(-2px)'
-              }
-            }}>
-              📤 Export
-            </Typography>
-            <Typography variant="button" sx={{ 
-              px: 2, py: 1, 
-              background: 'linear-gradient(135deg, rgba(0, 255, 255, 0.2), rgba(0, 153, 204, 0.2))',
-              border: '1px solid var(--neotech-primary)',
-              borderRadius: 1,
-              cursor: 'pointer',
-              fontSize: '12px',
-              color: 'var(--neotech-primary)',
-              fontFamily: "'Orbitron', monospace",
-              fontWeight: 600,
-              textTransform: 'uppercase',
-              transition: 'all 0.3s ease',
-              '&:hover': {
-                background: 'linear-gradient(135deg, rgba(0, 255, 255, 0.3), rgba(0, 153, 204, 0.3))',
-                boxShadow: 'var(--neotech-glow-medium)',
-                transform: 'translateY(-2px)'
-              }
-            }}>
-              📥 Import
-            </Typography>
-            <Typography variant="button" sx={{ 
-              px: 2, py: 1, 
-              background: 'rgba(0, 17, 34, 0.8)',
-              border: '1px solid var(--neotech-border)',
-              borderRadius: 1,
-              cursor: 'pointer',
-              fontSize: '12px',
-              color: 'var(--neotech-text-secondary)',
-              fontFamily: "'Orbitron', monospace",
-              fontWeight: 600,
-              textTransform: 'uppercase',
-              transition: 'all 0.3s ease',
-              '&:hover': {
-                background: 'rgba(0, 255, 255, 0.2)',
-                borderColor: 'var(--neotech-primary)',
-                color: 'var(--neotech-primary)',
-                boxShadow: 'var(--neotech-glow-small)'
-              }
-            }}>
-              Help ▼
-            </Typography>
-          </Box>
-        </Box>
-
         {/* Hex Grid */}
         <Box sx={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
         

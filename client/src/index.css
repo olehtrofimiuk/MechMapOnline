@@ -27,14 +27,26 @@
   box-sizing: border-box;
 }
 
-body {
+html, body {
   margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
   font-family: 'Orbitron', 'Rajdhani', 'Exo 2', 'Segoe UI', 'Roboto', monospace;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background: var(--neotech-bg);
   color: var(--neotech-text);
-  overflow-x: hidden;
+}
+
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+.App {
+  height: 100%;
+  overflow: hidden;
 }
 
 /* Import Neotech Fonts */
@@ -45,26 +57,33 @@ code {
   color: var(--neotech-accent);
 }
 
-/* Scrollbars */
+/* Scrollbars - Hide completely */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 0px;
+  height: 0px;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--neotech-darker);
-  border-radius: 4px;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--neotech-primary);
-  border-radius: 4px;
-  box-shadow: var(--neotech-glow-small);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--neotech-accent);
-  box-shadow: var(--neotech-glow-medium);
+  background: transparent;
+}
+
+/* Hide scrollbars for Firefox */
+html {
+  scrollbar-width: none;
+}
+
+/* Hide scrollbars for IE and Edge */
+body {
+  -ms-overflow-style: none;
 }
 
 /* Global Neotech Components */
