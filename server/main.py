@@ -201,9 +201,9 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000", 
         "http://127.0.0.1:3000",
-        "http://mechmaponline.fun:3000",
-        "https://mechmaponline.fun:3000"
-    ],  # React dev server + production domain
+        "http://mechmaponline.fun",
+        "https://mechmaponline.fun"
+    ],  # React dev server + production domain (without port)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -620,7 +620,16 @@ async def handle_message(sid, data):
 
 @app.get("/")
 async def read_root(request: Request):
-    return templates.TemplateResponse(name="index.html", context={"request": request})
+    # Serve the React app's index.html for the root route
+    from fastapi.responses import FileResponse
+    import os
+    
+    build_path = os.path.join(os.path.dirname(__file__), "..", "client", "build", "index.html")
+    if os.path.exists(build_path):
+        return FileResponse(build_path)
+    else:
+        # Fallback to template if build doesn't exist
+        return templates.TemplateResponse(name="index.html", context={"request": request})
 
 @app.post("/api/register")
 async def register_user(user_data: UserRegister):
@@ -771,7 +780,34 @@ async def get_rooms_status():
     except Exception as e:
         return {"error": str(e)}
 
+# Mount static files for the React app
 try:
-    app.mount("/static", StaticFiles(directory="static"), name="static")
+    import os
+    client_build_path = os.path.join(os.path.dirname(__file__), "..", "client", "build")
+    if os.path.exists(client_build_path):
+        # Serve React app static files
+        app.mount("/static", StaticFiles(directory=os.path.join(client_build_path, "static")), name="static")
+        logging.info(f"Serving React app from: {client_build_path}")
+    else:
+        # Fallback to server static files
+        app.mount("/static", StaticFiles(directory="static"), name="static")
+        logging.warning("React build not found, serving from server static directory")
 except RuntimeError as e:
     logging.error(f"Error mounting static files: {e}")
+
+# Catch-all route for React app (must be at the end)
+@app.get("/{full_path:path}")
+async def serve_react_app(full_path: str):
+    """Serve React app for all non-API routes"""
+    from fastapi.responses import FileResponse
+    import os
+    
+    # Skip API routes and WebSocket routes
+    if full_path.startswith(("api/", "ws/")):
+        raise HTTPException(status_code=404, detail="Not found")
+    
+    build_path = os.path.join(os.path.dirname(__file__), "..", "client", "build", "index.html")
+    if os.path.exists(build_path):
+        return FileResponse(build_path)
+    else:
+        raise HTTPException(status_code=404, detail="React app not found")

@@ -89,7 +89,7 @@ const MainWindow = () => {
 
         const sock = io(getApiBaseUrl(), {
             path: "/ws/socket.io/",
-            transports: ['websocket'],
+            transports: ['websocket', 'polling'],
           });
         socket.current = sock;
         
