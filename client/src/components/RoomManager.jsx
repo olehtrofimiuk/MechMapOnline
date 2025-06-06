@@ -186,7 +186,10 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
       alignItems: 'center', 
       justifyContent: 'center', 
       minHeight: '100vh',
-      backgroundColor: '#f5f5f5',
+      backgroundImage: 'url(/static/background.jpg)',
+      backgroundSize: 'cover',
+      backgroundPosition: 'center',
+      backgroundRepeat: 'no-repeat',
       padding: 2
     }}>
       <Paper sx={{ 

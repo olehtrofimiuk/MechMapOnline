@@ -264,7 +264,10 @@ const MainWindow = () => {
                 alignItems: 'center', 
                 justifyContent: 'center', 
                 minHeight: '100vh',
-                backgroundColor: '#f5f5f5'
+                backgroundImage: 'url(/static/background.jpg)',
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                backgroundRepeat: 'no-repeat'
             }}>
                 <Box sx={{ textAlign: 'center' }}>
                     <CircularProgress size={40} sx={{ mb: 2 }} />
@@ -291,7 +294,10 @@ const MainWindow = () => {
                     alignItems: 'center', 
                     justifyContent: 'center', 
                     minHeight: '100vh',
-                    backgroundColor: '#f5f5f5'
+                    backgroundImage: 'url(/static/background.jpg)',
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                    backgroundRepeat: 'no-repeat'
                 }}>
                     <Box sx={{ textAlign: 'center' }}>
                         <CircularProgress size={40} sx={{ mb: 2 }} />
@@ -325,47 +331,97 @@ const MainWindow = () => {
                 justifyContent: 'space-between', 
                 alignItems: 'center', 
                 p: 2, 
-                backgroundColor: 'primary.main',
-                color: 'white',
-                boxShadow: 1
+                background: 'linear-gradient(135deg, rgba(0, 17, 34, 0.95), rgba(0, 8, 17, 0.98))',
+                border: '1px solid var(--neotech-border)',
+                borderBottom: '2px solid var(--neotech-primary)',
+                boxShadow: '0 0 20px rgba(0, 255, 255, 0.3)',
+                color: 'var(--neotech-text)',
+                position: 'relative'
             }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+                {/* Animated bottom border */}
+                <Box sx={{
+                    position: 'absolute',
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    height: '2px',
+                    background: 'linear-gradient(90deg, transparent, var(--neotech-primary), transparent)',
+                    animation: 'neotech-scan 3s ease-in-out infinite'
+                }} />
+
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative', zIndex: 1 }}>
+                    <Typography variant="h6" sx={{ 
+                        fontWeight: 'bold',
+                        color: 'var(--neotech-primary)',
+                        textShadow: 'var(--neotech-glow-small)',
+                        fontFamily: "'Orbitron', monospace",
+                        textTransform: 'uppercase',
+                        letterSpacing: '1px'
+                    }}>
                         🗺️ {roomData.roomName || 'Room'}: {roomData.roomId}
                     </Typography>
                     <Chip 
                         icon={<GroupIcon />}
                         label={`${connectedUsers.length} user${connectedUsers.length !== 1 ? 's' : ''}`}
-                        color="secondary"
+                        sx={{
+                            background: 'rgba(0, 255, 255, 0.2)',
+                            border: '1px solid var(--neotech-primary)',
+                            color: 'var(--neotech-primary)',
+                            fontFamily: "'Rajdhani', monospace",
+                            fontWeight: 600,
+                            boxShadow: 'var(--neotech-glow-small)'
+                        }}
                         size="small"
                     />
                     {roomData.is_owner && (
                         <Chip 
                             label="OWNER" 
-                            color="success" 
+                            sx={{
+                                background: 'rgba(0, 255, 136, 0.2)',
+                                border: '1px solid var(--neotech-success)',
+                                color: 'var(--neotech-success)',
+                                fontFamily: "'Rajdhani', monospace",
+                                fontWeight: 600,
+                                fontSize: '10px',
+                                boxShadow: '0 0 5px rgba(0, 255, 136, 0.3)'
+                            }}
                             size="small"
-                            sx={{ fontSize: '10px' }}
                         />
                     )}
                 </Box>
                 
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Typography variant="body2">
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative', zIndex: 1 }}>
+                    <Typography variant="body2" sx={{
+                        color: 'var(--neotech-text-secondary)',
+                        fontFamily: "'Rajdhani', monospace",
+                        fontWeight: 500
+                    }}>
                         Welcome, {authState.username || roomData.userName}!
                         {authState.isAuthenticated && <> (Authenticated)</>}
                     </Typography>
                     <Button
                         variant="outlined"
-                        color="inherit"
                         size="small"
                         onClick={handleLeaveRoom}
                         disabled={isLeavingRoom}
-                        startIcon={isLeavingRoom ? <CircularProgress size={16} /> : <ExitToAppIcon />}
+                        startIcon={isLeavingRoom ? <CircularProgress size={16} sx={{ color: 'var(--neotech-primary)' }} /> : <ExitToAppIcon />}
                         sx={{ 
-                            borderColor: 'white',
+                            border: '1px solid var(--neotech-primary)',
+                            color: 'var(--neotech-primary)',
+                            background: 'rgba(0, 255, 255, 0.1)',
+                            fontFamily: "'Orbitron', monospace",
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            fontSize: '11px',
+                            transition: 'all 0.3s ease',
                             '&:hover': { 
-                                borderColor: 'white',
-                                backgroundColor: 'rgba(255,255,255,0.1)'
+                                background: 'rgba(0, 255, 255, 0.2)',
+                                boxShadow: 'var(--neotech-glow-medium)',
+                                transform: 'translateY(-1px)'
+                            },
+                            '&:disabled': {
+                                border: '1px solid rgba(0, 255, 255, 0.3)',
+                                color: 'rgba(0, 255, 255, 0.5)'
                             }
                         }}
                     >
@@ -374,15 +430,23 @@ const MainWindow = () => {
                     {authState.isAuthenticated && (
                         <Button
                             variant="outlined"
-                            color="inherit"
                             size="small"
                             onClick={handleLogout}
                             startIcon={<LogoutIcon />}
                             sx={{ 
-                                borderColor: 'white',
+                                border: '1px solid var(--neotech-border)',
+                                color: 'var(--neotech-text-secondary)',
+                                background: 'rgba(0, 17, 34, 0.8)',
+                                fontFamily: "'Orbitron', monospace",
+                                fontWeight: 600,
+                                textTransform: 'uppercase',
+                                fontSize: '11px',
+                                transition: 'all 0.3s ease',
                                 '&:hover': { 
-                                    borderColor: 'white',
-                                    backgroundColor: 'rgba(255,255,255,0.1)'
+                                    background: 'rgba(255, 51, 102, 0.2)',
+                                    borderColor: 'var(--neotech-error)',
+                                    color: 'var(--neotech-error)',
+                                    boxShadow: '0 0 10px rgba(255, 51, 102, 0.3)'
                                 }
                             }}
                         >
@@ -397,10 +461,17 @@ const MainWindow = () => {
                 <Box sx={{ 
                     px: 2, 
                     py: 1, 
-                    backgroundColor: '#f5f5f5', 
-                    borderBottom: '1px solid #ddd' 
+                    background: 'rgba(0, 17, 34, 0.9)',
+                    border: '1px solid var(--neotech-border)',
+                    borderTop: 'none',
+                    borderBottom: '1px solid var(--neotech-primary)',
+                    boxShadow: 'inset 0 0 10px rgba(0, 0, 0, 0.5)'
                 }}>
-                    <Typography variant="body2" sx={{ fontSize: '12px' }}>
+                    <Typography variant="body2" sx={{ 
+                        fontSize: '12px',
+                        color: 'var(--neotech-text-secondary)',
+                        fontFamily: "'Rajdhani', monospace"
+                    }}>
                         Connected users: {connectedUsers.map(user => 
                             `${user.name}${user.is_authenticated ? ' ✓' : ''}`
                         ).join(', ')}
@@ -409,7 +480,14 @@ const MainWindow = () => {
             )}
 
             {/* Hex Grid */}
-            <Box sx={{ flex: 1 }}>
+            <Box sx={{ 
+                flex: 1,
+                backgroundImage: 'url(/static/cockpit.jpg)',
+                
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                backgroundRepeat: 'no-repeat'
+            }}>
                 <HexGrid 
                     socket={socket.current}
                     roomData={roomData}

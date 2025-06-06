@@ -1,13 +1,348 @@
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+/* Neotech/Cyberpunk Global Theme */
+:root {
+  /* Neotech Color Palette */
+  --neotech-primary: #00ffff;
+  --neotech-secondary: #0099cc;
+  --neotech-accent: #66ffff;
+  --neotech-glow: #00cccc;
+  --neotech-dark: #001122;
+  --neotech-darker: #000811;
+  --neotech-bg: #000000;
+  --neotech-surface: rgba(0, 255, 255, 0.1);
+  --neotech-border: rgba(0, 255, 255, 0.3);
+  --neotech-text: #ffffff;
+  --neotech-text-secondary: #99ccff;
+  --neotech-success: #00ff88;
+  --neotech-warning: #ffaa00;
+  --neotech-error: #ff3366;
+  
+  /* Effects */
+  --neotech-glow-small: 0 0 5px var(--neotech-glow);
+  --neotech-glow-medium: 0 0 10px var(--neotech-glow), 0 0 20px var(--neotech-glow);
+  --neotech-glow-large: 0 0 10px var(--neotech-glow), 0 0 20px var(--neotech-glow), 0 0 30px var(--neotech-glow);
+  --neotech-border-glow: inset 0 0 10px rgba(0, 255, 255, 0.2), 0 0 5px rgba(0, 255, 255, 0.3);
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+* {
+  box-sizing: border-box;
 }
+
+body {
+  margin: 0;
+  font-family: 'Orbitron', 'Rajdhani', 'Exo 2', 'Segoe UI', 'Roboto', monospace;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: var(--neotech-bg);
+  color: var(--neotech-text);
+  overflow-x: hidden;
+}
+
+/* Import Neotech Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600;700&family=Exo+2:wght@300;400;500;600;700&display=swap');
+
+code {
+  font-family: 'Courier New', 'Fira Code', 'Source Code Pro', monospace;
+  color: var(--neotech-accent);
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--neotech-darker);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--neotech-primary);
+  border-radius: 4px;
+  box-shadow: var(--neotech-glow-small);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--neotech-accent);
+  box-shadow: var(--neotech-glow-medium);
+}
+
+/* Global Neotech Components */
+.neotech-container {
+  background: linear-gradient(135deg, rgba(0, 17, 34, 0.9), rgba(0, 8, 17, 0.95));
+  border: 1px solid var(--neotech-border);
+  border-radius: 8px;
+  box-shadow: var(--neotech-border-glow);
+  backdrop-filter: blur(10px);
+  position: relative;
+  overflow: hidden;
+}
+
+.neotech-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--neotech-primary), transparent);
+  animation: neotech-scan 3s ease-in-out infinite;
+}
+
+.neotech-button {
+  background: linear-gradient(135deg, rgba(0, 255, 255, 0.1), rgba(0, 153, 204, 0.1));
+  border: 1px solid var(--neotech-primary);
+  color: var(--neotech-primary);
+  font-family: 'Orbitron', monospace;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 12px 24px;
+  border-radius: 4px;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.neotech-button:hover {
+  background: linear-gradient(135deg, rgba(0, 255, 255, 0.2), rgba(0, 153, 204, 0.2));
+  box-shadow: var(--neotech-glow-medium);
+  transform: translateY(-2px);
+}
+
+.neotech-button:active {
+  transform: translateY(0);
+}
+
+.neotech-button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s;
+}
+
+.neotech-button:hover::before {
+  left: 100%;
+}
+
+.neotech-input {
+  background: rgba(0, 17, 34, 0.8);
+  border: 1px solid var(--neotech-border);
+  border-radius: 4px;
+  color: var(--neotech-text);
+  font-family: 'Rajdhani', monospace;
+  font-size: 16px;
+  padding: 12px 16px;
+  transition: all 0.3s ease;
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5);
+}
+
+.neotech-input:focus {
+  outline: none;
+  border-color: var(--neotech-primary);
+  box-shadow: var(--neotech-border-glow), inset 0 0 10px rgba(0, 0, 0, 0.5);
+}
+
+.neotech-input::placeholder {
+  color: var(--neotech-text-secondary);
+}
+
+.neotech-text-primary {
+  color: var(--neotech-primary);
+  text-shadow: var(--neotech-glow-small);
+  font-family: 'Orbitron', monospace;
+  font-weight: 700;
+}
+
+.neotech-text-secondary {
+  color: var(--neotech-text-secondary);
+  font-family: 'Rajdhani', sans-serif;
+}
+
+.neotech-glow {
+  text-shadow: var(--neotech-glow-medium);
+  animation: neotech-pulse 2s ease-in-out infinite alternate;
+}
+
+.neotech-border {
+  border: 1px solid var(--neotech-primary);
+  border-radius: 8px;
+  position: relative;
+}
+
+.neotech-border::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  background: linear-gradient(45deg, var(--neotech-primary), var(--neotech-secondary), var(--neotech-accent), var(--neotech-primary));
+  border-radius: 8px;
+  z-index: -1;
+  opacity: 0.5;
+  background-size: 200% 200%;
+  animation: neotech-gradient 3s ease infinite;
+}
+
+/* Animations */
+@keyframes neotech-pulse {
+  0% { text-shadow: var(--neotech-glow-small); }
+  100% { text-shadow: var(--neotech-glow-large); }
+}
+
+@keyframes neotech-scan {
+  0%, 100% { transform: translateX(-100%); }
+  50% { transform: translateX(100%); }
+}
+
+@keyframes neotech-gradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes neotech-flicker {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
+}
+
+/* Material-UI Override Styles */
+.MuiPaper-root {
+  background: linear-gradient(135deg, rgba(0, 17, 34, 0.95), rgba(0, 8, 17, 0.98)) !important;
+  border: 1px solid var(--neotech-border) !important;
+  box-shadow: var(--neotech-border-glow) !important;
+  backdrop-filter: blur(10px) !important;
+}
+
+.MuiButton-root {
+  font-family: 'Orbitron', monospace !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 1px !important;
+  transition: all 0.3s ease !important;
+}
+
+.MuiButton-contained {
+  background: linear-gradient(135deg, var(--neotech-primary), var(--neotech-secondary)) !important;
+  color: var(--neotech-dark) !important;
+  border: none !important;
+  box-shadow: var(--neotech-glow-small) !important;
+}
+
+.MuiButton-contained:hover {
+  background: linear-gradient(135deg, var(--neotech-accent), var(--neotech-primary)) !important;
+  box-shadow: var(--neotech-glow-medium) !important;
+  transform: translateY(-2px) !important;
+}
+
+.MuiButton-outlined {
+  border: 1px solid var(--neotech-primary) !important;
+  color: var(--neotech-primary) !important;
+  background: rgba(0, 255, 255, 0.1) !important;
+}
+
+.MuiButton-outlined:hover {
+  background: rgba(0, 255, 255, 0.2) !important;
+  box-shadow: var(--neotech-glow-medium) !important;
+}
+
+.MuiTextField-root .MuiOutlinedInput-root {
+  background: rgba(0, 17, 34, 0.8) !important;
+  border-radius: 4px !important;
+}
+
+.MuiOutlinedInput-notchedOutline {
+  border-color: var(--neotech-border) !important;
+}
+
+.MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline {
+  border-color: var(--neotech-primary) !important;
+}
+
+.MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline {
+  border-color: var(--neotech-primary) !important;
+  box-shadow: var(--neotech-glow-small) !important;
+}
+
+.MuiInputBase-input {
+  color: var(--neotech-text) !important;
+  font-family: 'Rajdhani', monospace !important;
+}
+
+.MuiInputLabel-root {
+  color: var(--neotech-text-secondary) !important;
+  font-family: 'Rajdhani', monospace !important;
+}
+
+.MuiInputLabel-root.Mui-focused {
+  color: var(--neotech-primary) !important;
+}
+
+.MuiTypography-root {
+  font-family: 'Rajdhani', sans-serif !important;
+  color: var(--neotech-text) !important;
+}
+
+.MuiTypography-h1, .MuiTypography-h2, .MuiTypography-h3, 
+.MuiTypography-h4, .MuiTypography-h5, .MuiTypography-h6 {
+  font-family: 'Orbitron', monospace !important;
+  color: var(--neotech-primary) !important;
+  text-shadow: var(--neotech-glow-small) !important;
+}
+
+.MuiChip-root {
+  background: rgba(0, 255, 255, 0.2) !important;
+  border: 1px solid var(--neotech-primary) !important;
+  color: var(--neotech-primary) !important;
+  font-family: 'Rajdhani', monospace !important;
+  font-weight: 600 !important;
+}
+
+.MuiAlert-root {
+  background: rgba(0, 17, 34, 0.9) !important;
+  border: 1px solid var(--neotech-border) !important;
+  border-radius: 4px !important;
+  backdrop-filter: blur(5px) !important;
+}
+
+.MuiAlert-standardError {
+  border-color: var(--neotech-error) !important;
+}
+
+.MuiAlert-standardSuccess {
+  border-color: var(--neotech-success) !important;
+}
+
+.MuiAlert-standardInfo {
+  border-color: var(--neotech-primary) !important;
+}
+
+.MuiTab-root {
+  font-family: 'Orbitron', monospace !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  color: var(--neotech-text-secondary) !important;
+}
+
+.MuiTab-root.Mui-selected {
+  color: var(--neotech-primary) !important;
+  text-shadow: var(--neotech-glow-small) !important;
+}
+
+.MuiTabs-indicator {
+  background: var(--neotech-primary) !important;
+  box-shadow: var(--neotech-glow-small) !important;
+}
+
+/* Utility Classes */
+.text-neotech { color: var(--neotech-primary) !important; }
+.text-neotech-secondary { color: var(--neotech-text-secondary) !important; }
+.bg-neotech { background: var(--neotech-surface) !important; }
+.border-neotech { border-color: var(--neotech-primary) !important; }
+.glow-neotech { box-shadow: var(--neotech-glow-medium) !important; }

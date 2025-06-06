@@ -1,38 +1,230 @@
+/* Neotech App Styles */
 .App {
   text-align: center;
+  background: var(--neotech-bg);
+  min-height: 100vh;
+  color: var(--neotech-text);
 }
 
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
-}
-
+/* Neotech App Header */
 .App-header {
-  background-color: #282c34;
+  background: linear-gradient(135deg, var(--neotech-dark), var(--neotech-darker));
+  border-bottom: 2px solid var(--neotech-primary);
+  box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   font-size: calc(10px + 2vmin);
-  color: white;
+  color: var(--neotech-text);
+  position: relative;
+  overflow: hidden;
 }
 
-.App-link {
-  color: #61dafb;
+.App-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    radial-gradient(circle at 20% 50%, rgba(0, 255, 255, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(0, 153, 204, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 40% 80%, rgba(0, 255, 255, 0.05) 0%, transparent 50%);
+  animation: neotech-ambient 8s ease-in-out infinite alternate;
+  z-index: 0;
 }
 
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
+.App-header > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Neotech Logo */
+.App-logo {
+  height: 40vmin;
+  pointer-events: none;
+  filter: drop-shadow(0 0 20px var(--neotech-glow));
+  animation: App-logo-spin 20s linear infinite;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .App-logo {
+    animation: App-logo-spin 20s linear infinite;
   }
+}
+
+/* Enhanced logo animation with glow */
+@keyframes App-logo-spin {
+  0% {
+    transform: rotate(0deg);
+    filter: drop-shadow(0 0 20px var(--neotech-glow));
+  }
+  50% {
+    filter: drop-shadow(0 0 30px var(--neotech-primary));
+  }
+  100% {
+    transform: rotate(360deg);
+    filter: drop-shadow(0 0 20px var(--neotech-glow));
+  }
+}
+
+/* Neotech Links */
+.App-link {
+  color: var(--neotech-primary);
+  text-decoration: none;
+  text-shadow: var(--neotech-glow-small);
+  transition: all 0.3s ease;
+  font-family: 'Orbitron', monospace;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.App-link:hover {
+  color: var(--neotech-accent);
+  text-shadow: var(--neotech-glow-medium);
+  transform: translateY(-2px);
+}
+
+/* Ambient animation */
+@keyframes neotech-ambient {
+  0% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0.7;
+    transform: scale(1.1);
+  }
+}
+
+/* Neotech Grid Pattern Overlay */
+.neotech-grid-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: 
+    linear-gradient(rgba(0, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 50px 50px;
+  pointer-events: none;
+  z-index: -1;
+  animation: neotech-grid-flow 20s linear infinite;
+}
+
+@keyframes neotech-grid-flow {
+  0% {
+    transform: translate(0, 0);
+  }
+  100% {
+    transform: translate(50px, 50px);
+  }
+}
+
+/* Neotech Container Styles */
+.neotech-main-container {
+  background: var(--neotech-bg);
+  min-height: 100vh;
+  position: relative;
+}
+
+.neotech-main-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    radial-gradient(circle at 10% 20%, rgba(0, 255, 255, 0.05) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(0, 153, 204, 0.05) 0%, transparent 50%),
+    radial-gradient(circle at 40% 40%, rgba(102, 255, 255, 0.03) 0%, transparent 50%);
+  animation: neotech-bg-pulse 10s ease-in-out infinite alternate;
+  z-index: -1;
+}
+
+@keyframes neotech-bg-pulse {
+  0% {
+    opacity: 0.3;
+  }
+  100% {
+    opacity: 0.8;
+  }
+}
+
+/* Neotech Loading Animation */
+.neotech-loading {
+  display: inline-block;
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(0, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: var(--neotech-primary);
+  animation: neotech-spin 1s ease-in-out infinite;
+  box-shadow: var(--neotech-glow-small);
+}
+
+@keyframes neotech-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* Neotech Text Effects */
+.neotech-title {
+  font-family: 'Orbitron', monospace;
+  font-weight: 900;
+  color: var(--neotech-primary);
+  text-shadow: var(--neotech-glow-medium);
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  margin: 0;
+  animation: neotech-title-glow 3s ease-in-out infinite alternate;
+}
+
+@keyframes neotech-title-glow {
+  0% {
+    text-shadow: 
+      0 0 5px var(--neotech-glow),
+      0 0 10px var(--neotech-glow),
+      0 0 15px var(--neotech-glow);
+  }
+  100% {
+    text-shadow: 
+      0 0 10px var(--neotech-glow),
+      0 0 20px var(--neotech-glow),
+      0 0 30px var(--neotech-glow),
+      0 0 40px var(--neotech-glow);
+  }
+}
+
+.neotech-subtitle {
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 300;
+  color: var(--neotech-text-secondary);
+  margin: 10px 0;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .neotech-title {
+    font-size: 2rem;
+    letter-spacing: 2px;
+  }
+  
+  .neotech-subtitle {
+    font-size: 1rem;
+    letter-spacing: 1px;
+  }
+  
+  .App-logo {
+    height: 30vmin;
   }
 }

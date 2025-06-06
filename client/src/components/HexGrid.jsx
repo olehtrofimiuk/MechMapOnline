@@ -343,22 +343,53 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
       {/* Left Sidebar */}
       <Box sx={{ 
         width: '280px', 
-        backgroundColor: '#f5f5f5', 
+        background: 'linear-gradient(135deg, rgba(0, 17, 34, 0.95), rgba(0, 8, 17, 0.98))',
+        border: '1px solid var(--neotech-border)',
+        boxShadow: 'inset 0 0 10px rgba(0, 255, 255, 0.2), 0 0 5px rgba(0, 255, 255, 0.3)',
+        backdropFilter: 'blur(10px)',
         padding: 2, 
-        borderRight: '1px solid #ddd',
+        borderRight: '2px solid var(--neotech-primary)',
         display: 'flex',
         flexDirection: 'column',
         gap: 3,
-        overflowY: 'auto'
+        overflowY: 'auto',
+        position: 'relative'
       }}>
+        {/* Animated top border */}
+        <Box sx={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: '2px',
+          background: 'linear-gradient(90deg, transparent, var(--neotech-primary), transparent)',
+          animation: 'neotech-scan 3s ease-in-out infinite'
+        }} />
+
         {/* Header */}
-        <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 1 }}>
+        <Typography variant="h5" sx={{ 
+          fontWeight: 'bold', 
+          mb: 1,
+          color: 'var(--neotech-primary)',
+          textShadow: 'var(--neotech-glow-small)',
+          fontFamily: "'Orbitron', monospace",
+          textTransform: 'uppercase',
+          letterSpacing: '2px'
+        }}>
           Hex Map Editor
         </Typography>
 
         {/* Tools Section */}
         <Box>
-          <Typography variant="h6" sx={{ mb: 1, fontSize: '14px', fontWeight: 'bold' }}>
+          <Typography variant="h6" sx={{ 
+            mb: 1, 
+            fontSize: '14px', 
+            fontWeight: 'bold',
+            color: 'var(--neotech-text-secondary)',
+            fontFamily: "'Rajdhani', monospace",
+            textTransform: 'uppercase',
+            letterSpacing: '1px'
+          }}>
             Tools
           </Typography>
           <ToggleButtonGroup
@@ -367,7 +398,26 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
             onChange={handleInteractionModeChange}
             orientation="vertical"
             fullWidth
-            sx={{ '& .MuiToggleButton-root': { justifyContent: 'flex-start', px: 2 } }}
+            sx={{ 
+              '& .MuiToggleButton-root': { 
+                justifyContent: 'flex-start', 
+                px: 2,
+                border: '1px solid var(--neotech-border)',
+                background: 'rgba(0, 255, 255, 0.1)',
+                color: 'var(--neotech-text-secondary)',
+                fontFamily: "'Rajdhani', monospace",
+                fontWeight: 600,
+                '&:hover': {
+                  background: 'rgba(0, 255, 255, 0.2)',
+                  boxShadow: 'var(--neotech-glow-small)'
+                },
+                '&.Mui-selected': {
+                  background: 'linear-gradient(135deg, rgba(0, 255, 255, 0.3), rgba(0, 153, 204, 0.3))',
+                  color: 'var(--neotech-primary)',
+                  boxShadow: 'var(--neotech-glow-medium)'
+                }
+              }
+            }}
           >
             <ToggleButton value="select" aria-label="select mode">
               <AdsClickIcon sx={{ mr: 1 }} />
@@ -391,7 +441,15 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
         {/* Color Section */}
         {(interactionMode === 'color' || interactionMode === 'draw') && (
           <Box>
-            <Typography variant="h6" sx={{ mb: 1, fontSize: '14px', fontWeight: 'bold' }}>
+            <Typography variant="h6" sx={{ 
+              mb: 1, 
+              fontSize: '14px', 
+              fontWeight: 'bold',
+              color: 'var(--neotech-text-secondary)',
+              fontFamily: "'Rajdhani', monospace",
+              textTransform: 'uppercase',
+              letterSpacing: '1px'
+            }}>
               Color
             </Typography>
             
@@ -402,20 +460,26 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
               gap: 1, 
               mb: 2,
               p: 1,
-              backgroundColor: 'white',
+              background: 'rgba(0, 17, 34, 0.8)',
+              border: '1px solid var(--neotech-border)',
               borderRadius: 1,
-              border: '1px solid #ddd'
+              boxShadow: 'inset 0 0 10px rgba(0, 0, 0, 0.5)'
             }}>
               <Box
                 sx={{
                   width: 40,
                   height: 40,
                   backgroundColor: selectedColor,
-                  border: '1px solid #ccc',
+                  border: '1px solid var(--neotech-primary)',
                   borderRadius: 1,
+                  boxShadow: 'var(--neotech-glow-small)'
                 }}
               />
-              <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+              <Typography variant="body2" sx={{ 
+                fontFamily: "'Courier New', monospace",
+                color: 'var(--neotech-accent)',
+                fontSize: '12px'
+              }}>
                 {selectedColor}
               </Typography>
             </Box>
@@ -430,11 +494,15 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
                     width: 40,
                     height: 40,
                     backgroundColor: color,
-                    border: selectedColor === color ? '3px solid #0066cc' : '1px solid #ccc',
+                    border: selectedColor === color ? '3px solid var(--neotech-primary)' : '1px solid var(--neotech-border)',
                     borderRadius: 1,
                     cursor: 'pointer',
+                    boxShadow: selectedColor === color ? 'var(--neotech-glow-medium)' : 'none',
+                    transition: 'all 0.3s ease',
                     '&:hover': {
-                      borderColor: selectedColor === color ? '#0066cc' : '#999'
+                      borderColor: 'var(--neotech-primary)',
+                      boxShadow: 'var(--neotech-glow-small)',
+                      transform: 'translateY(-2px)'
                     }
                   }}
                 />
@@ -442,35 +510,53 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
             </Box>
 
             {/* Color Picker */}
-            <HexColorPicker 
-              color={selectedColor} 
-              onChange={setSelectedColor} 
-              style={{ width: '100%', height: '120px' }}
-            />
+            <Box sx={{
+              background: 'rgba(0, 17, 34, 0.8)',
+              border: '1px solid var(--neotech-border)',
+              borderRadius: 1,
+              padding: 1,
+              boxShadow: 'inset 0 0 10px rgba(0, 0, 0, 0.5)'
+            }}>
+              <HexColorPicker 
+                color={selectedColor} 
+                onChange={setSelectedColor} 
+                style={{ width: '100%', height: '120px' }}
+              />
+            </Box>
           </Box>
         )}
 
         {/* Status/Info Section */}
         <Box sx={{ 
           p: 1, 
-          backgroundColor: 'white', 
+          background: 'rgba(0, 17, 34, 0.8)',
+          border: '1px solid var(--neotech-border)',
           borderRadius: 1,
-          border: '1px solid #ddd',
+          boxShadow: 'inset 0 0 10px rgba(0, 0, 0, 0.5)',
           fontSize: '12px'
         }}>
           {interactionMode === 'color' && lastColoredHexDetails && (
-            <Typography variant="caption">
+            <Typography variant="caption" sx={{ 
+              color: 'var(--neotech-text-secondary)',
+              fontFamily: "'Rajdhani', monospace"
+            }}>
               Last painted: ({lastColoredHexDetails.q+startingHex.q},{lastColoredHexDetails.r+startingHex.r})
             </Typography>
           )}
           {(interactionMode === 'draw' && lineStartHex) && (
-            <Typography variant="caption" sx={{ color: 'primary.main' }}>
+            <Typography variant="caption" sx={{ 
+              color: 'var(--neotech-primary)',
+              fontFamily: "'Rajdhani', monospace"
+            }}>
               {isDraggingLine ? "Dragging from:" : "Start:"} ({lineStartHex.q}, {lineStartHex.r})
               {hoveredHexKey && <><br/>Target: ({hoveredHexKey.split(',')[0]}, {hoveredHexKey.split(',')[1]})</>}
             </Typography>
           )}
           {interactionMode === 'erase' && (
-            <Typography variant="caption" sx={{ color: 'error.main' }}>
+            <Typography variant="caption" sx={{ 
+              color: 'var(--neotech-error)',
+              fontFamily: "'Rajdhani', monospace"
+            }}>
               Drag to erase lines and colors
             </Typography>
           )}
@@ -479,17 +565,34 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
         {/* Navigation Tips */}
         <Box sx={{ 
           p: 1, 
-          backgroundColor: '#e3f2fd', 
+          background: 'linear-gradient(135deg, rgba(0, 255, 255, 0.1), rgba(0, 153, 204, 0.1))',
+          border: '1px solid var(--neotech-primary)',
           borderRadius: 1,
-          fontSize: '11px'
+          fontSize: '11px',
+          boxShadow: 'var(--neotech-glow-small)'
         }}>
-          <Typography variant="caption" sx={{ display: 'block', fontWeight: 'bold', mb: 0.5 }}>
+          <Typography variant="caption" sx={{ 
+            display: 'block', 
+            fontWeight: 'bold', 
+            mb: 0.5,
+            color: 'var(--neotech-primary)',
+            fontFamily: "'Orbitron', monospace",
+            textTransform: 'uppercase'
+          }}>
             Tip:
           </Typography>
-          <Typography variant="caption" sx={{ display: 'block' }}>
+          <Typography variant="caption" sx={{ 
+            display: 'block',
+            color: 'var(--neotech-text-secondary)',
+            fontFamily: "'Rajdhani', monospace"
+          }}>
             Use mouse wheel to zoom in/out
           </Typography>
-          <Typography variant="caption" sx={{ display: 'block' }}>
+          <Typography variant="caption" sx={{ 
+            display: 'block',
+            color: 'var(--neotech-text-secondary)',
+            fontFamily: "'Rajdhani', monospace"
+          }}>
             Right-click drag to pan the map
           </Typography>
         </Box>
@@ -508,34 +611,81 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
           justifyContent: 'flex-end', 
           alignItems: 'center', 
           p: 1, 
-          borderBottom: '1px solid #ddd',
-          backgroundColor: 'white'
+          borderBottom: '2px solid var(--neotech-primary)',
+          background: 'linear-gradient(135deg, rgba(0, 17, 34, 0.95), rgba(0, 8, 17, 0.98))',
+          boxShadow: '0 0 10px rgba(0, 255, 255, 0.3)',
+          position: 'relative'
         }}>
-          <Box sx={{ display: 'flex', gap: 1 }}>
+          {/* Animated bottom border */}
+          <Box sx={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: '2px',
+            background: 'linear-gradient(90deg, transparent, var(--neotech-primary), transparent)',
+            animation: 'neotech-scan 3s ease-in-out infinite reverse'
+          }} />
+          
+          <Box sx={{ display: 'flex', gap: 1, position: 'relative', zIndex: 1 }}>
             <Typography variant="button" sx={{ 
               px: 2, py: 1, 
-              backgroundColor: '#e3f2fd', 
+              background: 'linear-gradient(135deg, rgba(0, 255, 255, 0.2), rgba(0, 153, 204, 0.2))',
+              border: '1px solid var(--neotech-primary)',
               borderRadius: 1,
               cursor: 'pointer',
-              fontSize: '12px'
+              fontSize: '12px',
+              color: 'var(--neotech-primary)',
+              fontFamily: "'Orbitron', monospace",
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              transition: 'all 0.3s ease',
+              '&:hover': {
+                background: 'linear-gradient(135deg, rgba(0, 255, 255, 0.3), rgba(0, 153, 204, 0.3))',
+                boxShadow: 'var(--neotech-glow-medium)',
+                transform: 'translateY(-2px)'
+              }
             }}>
               📤 Export
             </Typography>
             <Typography variant="button" sx={{ 
               px: 2, py: 1, 
-              backgroundColor: '#e3f2fd', 
+              background: 'linear-gradient(135deg, rgba(0, 255, 255, 0.2), rgba(0, 153, 204, 0.2))',
+              border: '1px solid var(--neotech-primary)',
               borderRadius: 1,
               cursor: 'pointer',
-              fontSize: '12px'
+              fontSize: '12px',
+              color: 'var(--neotech-primary)',
+              fontFamily: "'Orbitron', monospace",
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              transition: 'all 0.3s ease',
+              '&:hover': {
+                background: 'linear-gradient(135deg, rgba(0, 255, 255, 0.3), rgba(0, 153, 204, 0.3))',
+                boxShadow: 'var(--neotech-glow-medium)',
+                transform: 'translateY(-2px)'
+              }
             }}>
               📥 Import
             </Typography>
             <Typography variant="button" sx={{ 
               px: 2, py: 1, 
-              backgroundColor: '#f5f5f5', 
+              background: 'rgba(0, 17, 34, 0.8)',
+              border: '1px solid var(--neotech-border)',
               borderRadius: 1,
               cursor: 'pointer',
-              fontSize: '12px'
+              fontSize: '12px',
+              color: 'var(--neotech-text-secondary)',
+              fontFamily: "'Orbitron', monospace",
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              transition: 'all 0.3s ease',
+              '&:hover': {
+                background: 'rgba(0, 255, 255, 0.2)',
+                borderColor: 'var(--neotech-primary)',
+                color: 'var(--neotech-primary)',
+                boxShadow: 'var(--neotech-glow-small)'
+              }
             }}>
               Help ▼
             </Typography>
