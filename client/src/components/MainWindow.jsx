@@ -13,6 +13,7 @@ import HelpIcon from '@mui/icons-material/Help';
 import HexGrid from './HexGrid';
 import RoomManager from './RoomManager';
 import AuthManager from './AuthManager';
+import AdminPanel from './AdminPanel';
 
 const MainWindow = () => {
     const socket = useRef(null);
@@ -25,9 +26,15 @@ const MainWindow = () => {
     const [authState, setAuthState] = useState({
         isAuthenticated: null, // null = checking, true = authenticated, false = not authenticated
         token: null,
-        username: null
+        username: null,
+        isAdmin: false
     });
     const [showBackground, setShowBackground] = useState(true);
+    const [adminData, setAdminData] = useState({
+        availableRooms: [],
+        roomToggles: {},
+        isAdminRoom: false
+    });
 
     // Get API base URL based on environment
     const getApiBaseUrl = () => {
@@ -56,7 +63,8 @@ const MainWindow = () => {
                     setAuthState({
                         isAuthenticated: true,
                         token: token,
-                        username: data.username
+                        username: data.username,
+                        isAdmin: data.is_admin || false
                     });
                 } else {
                     // Token invalid, clear storage
@@ -65,7 +73,8 @@ const MainWindow = () => {
                     setAuthState({
                         isAuthenticated: false,
                         token: null,
-                        username: null
+                        username: null,
+                        isAdmin: false
                     });
                 }
             })
@@ -77,14 +86,16 @@ const MainWindow = () => {
                 setAuthState({
                     isAuthenticated: false,
                     token: null,
-                    username: null
+                    username: null,
+                    isAdmin: false
                 });
             });
         } else {
             setAuthState({
                 isAuthenticated: false,
                 token: null,
-                username: null
+                username: null,
+                isAdmin: false
             });
         }
     }, []);
@@ -129,6 +140,30 @@ const MainWindow = () => {
             handleLogout();
         });
 
+        // Admin room event handlers are now handled in RoomManager
+
+        socket.current.on('admin_room_data_updated', (data) => {
+            setRoomData(prev => ({
+                ...prev,
+                hexData: data.hex_data,
+                lines: data.lines
+            }));
+            setAdminData(prev => ({
+                ...prev,
+                roomToggles: data.room_toggles
+            }));
+            
+            if (data.toggled_room_name && data.hasOwnProperty('enabled')) {
+                setUserActivity(`${data.toggled_room_name} visibility ${data.enabled ? 'enabled' : 'disabled'}`);
+                setShowActivityMessage(true);
+            }
+        });
+
+        socket.current.on('admin_error', (data) => {
+            setUserActivity(`Admin Error: ${data.message}`);
+            setShowActivityMessage(true);
+        });
+
         // Cleanup on unmount
         return () => {
             if (socket.current) {
@@ -141,7 +176,8 @@ const MainWindow = () => {
         setAuthState({
             isAuthenticated: authData.isAuthenticated,
             token: authData.token,
-            username: authData.username
+            username: authData.username,
+            isAdmin: authData.isAdmin || false
         });
     }, []);
 
@@ -167,12 +203,18 @@ const MainWindow = () => {
         setAuthState({
             isAuthenticated: false,
             token: null,
-            username: null
+            username: null,
+            isAdmin: false
         });
 
         // Clear room data
         setRoomData(null);
         setConnectedUsers([]);
+        setAdminData({
+            availableRooms: [],
+            roomToggles: {},
+            isAdminRoom: false
+        });
 
         // Disconnect socket if connected
         if (socket.current) {
@@ -237,6 +279,69 @@ const MainWindow = () => {
                     setRoomData(null);
                     setConnectedUsers([]);
                     setIsLeavingRoom(false);
+                    setAdminData({
+                        availableRooms: [],
+                        roomToggles: {},
+                        isAdminRoom: false
+                    });
+                }
+            });
+        }
+    }, []);
+
+    // Handle joining an admin room successfully
+    const handleAdminRoomJoined = useCallback((data) => {
+        console.log('Admin room joined data:', data);
+        console.log('Available rooms:', data.available_rooms);
+        console.log('Room toggles:', data.room_toggles);
+        
+        setRoomData(data);
+        setConnectedUsers(data.users || []);
+        setAdminData({
+            availableRooms: data.available_rooms || [],
+            roomToggles: data.room_toggles || {},
+            isAdminRoom: true
+        });
+        
+        console.log('Admin data set to:', {
+            availableRooms: data.available_rooms || [],
+            roomToggles: data.room_toggles || {},
+            isAdminRoom: true
+        });
+        
+        // Set up admin room-specific socket listeners
+        if (socket.current) {
+            // Clean up any existing listeners first
+            socket.current.off('user_joined');
+            socket.current.off('user_left');
+            socket.current.off('room_left');
+
+            // Listen for other users joining admin room
+            socket.current.on('user_joined', (userData) => {
+                setConnectedUsers(prev => [...prev, { name: userData.user_name, is_authenticated: userData.is_authenticated }]);
+                setUserActivity(`Admin ${userData.user_name} joined the admin room`);
+                setShowActivityMessage(true);
+            });
+
+            // Listen for users leaving admin room
+            socket.current.on('user_left', (userData) => {
+                setConnectedUsers(prev => prev.filter(user => user.name !== userData.user_name));
+                setUserActivity(`Admin ${userData.user_name} left the admin room`);
+                setShowActivityMessage(true);
+            });
+
+            // Listen for room left confirmation
+            socket.current.on('room_left', (data) => {
+                if (data.success) {
+                    console.log('Successfully left admin room');
+                    setRoomData(null);
+                    setConnectedUsers([]);
+                    setIsLeavingRoom(false);
+                    setAdminData({
+                        availableRooms: [],
+                        roomToggles: {},
+                        isAdminRoom: false
+                    });
                 }
             });
         }
@@ -384,8 +489,6 @@ const MainWindow = () => {
         input.click();
     }, [roomData]);
 
-
-
     // Show Help
     const handleHelp = useCallback(() => {
         // This would open a help dialog or guide
@@ -453,6 +556,7 @@ const MainWindow = () => {
             <RoomManager 
                 socket={socket.current} 
                 onRoomJoined={handleRoomJoined}
+                onAdminRoomJoined={handleAdminRoomJoined}
                 authState={authState}
                 onLogout={handleLogout}
             />
@@ -766,6 +870,19 @@ const MainWindow = () => {
                     onBackgroundToggle={handleBackgroundToggle}
                 />
             </Box>
+
+            {/* Admin Panel */}
+            {authState.isAdmin && adminData.isAdminRoom && (
+                <AdminPanel
+                    roomData={roomData}
+                    availableRooms={adminData.availableRooms}
+                    roomToggles={adminData.roomToggles}
+                    socket={socket.current}
+                />
+            )}
+
+            {/* Debug info for admin panel */}
+            {console.log('Render check - authState.isAdmin:', authState.isAdmin, 'adminData.isAdminRoom:', adminData.isAdminRoom, 'adminData:', adminData)}
 
             {/* Activity Notifications */}
             <Snackbar

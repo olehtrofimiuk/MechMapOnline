@@ -19,8 +19,9 @@ import GroupIcon from '@mui/icons-material/Group';
 import AddIcon from '@mui/icons-material/Add';
 import LoginIcon from '@mui/icons-material/Login';
 import LogoutIcon from '@mui/icons-material/Logout';
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 
-const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
+const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLogout }) => {
   const [userName, setUserName] = useState('');
   const [roomName, setRoomName] = useState('');
   const [roomId, setRoomId] = useState('');
@@ -29,6 +30,7 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
   const [success, setSuccess] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [availableRooms, setAvailableRooms] = useState([]);
+  const [adminRooms, setAdminRooms] = useState([]);
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
@@ -40,6 +42,10 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
       setError('');
       // Request available rooms when connected
       socket.emit('get_rooms');
+      // Request admin rooms if user is admin
+      if (authState.isAdmin) {
+        socket.emit('get_admin_rooms');
+      }
     };
 
     const handleDisconnect = () => {
@@ -55,6 +61,9 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
     if (socket.connected) {
       setIsConnected(true);
       socket.emit('get_rooms');
+      if (authState.isAdmin) {
+        socket.emit('get_admin_rooms');
+      }
     }
 
     // Listen for room creation success
@@ -89,6 +98,49 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
       });
     });
 
+    // Listen for admin room events
+    socket.on('admin_room_created', (data) => {
+      console.log('Admin room created event received:', data);
+      setIsLoading(false);
+      setSuccess(`Admin room "${data.room_name}" (${data.room_id}) created successfully!`);
+      setError('');
+      if (onAdminRoomJoined) {
+        console.log('Calling onAdminRoomJoined callback');
+        onAdminRoomJoined({
+          roomId: data.room_id,
+          roomName: data.room_name,
+          userName: data.user_name,
+          is_owner: data.is_owner,
+          hexData: data.hex_data,
+          lines: data.lines,
+          users: data.users,
+          available_rooms: data.available_rooms,
+          room_toggles: data.room_toggles,
+          isAdminRoom: true
+        });
+      }
+    });
+
+    socket.on('admin_room_joined', (data) => {
+      setIsLoading(false);
+      setSuccess(`Joined admin room "${data.room_name}" (${data.room_id}) successfully!`);
+      setError('');
+      if (onAdminRoomJoined) {
+        onAdminRoomJoined({
+          roomId: data.room_id,
+          roomName: data.room_name,
+          userName: data.user_name,
+          is_owner: data.is_owner,
+          hexData: data.hex_data,
+          lines: data.lines,
+          users: data.users,
+          available_rooms: data.available_rooms,
+          room_toggles: data.room_toggles,
+          isAdminRoom: true
+        });
+      }
+    });
+
     // Listen for room errors
     socket.on('room_error', (data) => {
       setIsLoading(false);
@@ -101,6 +153,11 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
       setAvailableRooms(data.rooms);
     });
 
+    // Listen for admin rooms list
+    socket.on('admin_rooms_list', (data) => {
+      setAdminRooms(data.admin_rooms);
+    });
+
     // Cleanup listeners
     return () => {
       socket.off('connect', handleConnect);
@@ -109,8 +166,11 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
       socket.off('room_joined');
       socket.off('room_error');
       socket.off('rooms_list');
+      socket.off('admin_room_created');
+      socket.off('admin_room_joined');
+      socket.off('admin_rooms_list');
     };
-  }, [socket, onRoomJoined]);
+  }, [socket, onRoomJoined, onAdminRoomJoined]);
 
   const handleCreateRoom = () => {
     if (!socket || !isConnected) {
@@ -131,6 +191,28 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
     socket.emit('create_room', {
       user_name: authState.isAuthenticated ? authState.username : userName.trim(),
       room_name: roomName.trim() || 'Unnamed Room'
+    });
+  };
+
+  const handleCreateAdminRoom = () => {
+    if (!socket || !isConnected) {
+      setError('Not connected to server. Please wait or refresh the page.');
+      return;
+    }
+
+    if (!authState.isAuthenticated || !authState.isAdmin) {
+      setError('Admin privileges required to create admin rooms');
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+    setSuccess('');
+    
+    socket.emit('create_room', {
+      user_name: authState.username,
+      room_name: roomName.trim() || 'Admin Room',
+      is_admin_room: true
     });
   };
 
@@ -166,6 +248,9 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
   const refreshRooms = () => {
     if (socket && isConnected) {
       socket.emit('get_rooms');
+      if (authState.isAdmin) {
+        socket.emit('get_admin_rooms');
+      }
     }
   };
 
@@ -289,6 +374,15 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
               icon={<PersonIcon />}
             />
           )}
+
+          {authState.isAdmin && (
+            <Chip 
+              label="Administrator" 
+              color="secondary"
+              size="small"
+              icon={<AdminPanelSettingsIcon />}
+            />
+          )}
         </Box>
 
         {/* User Name Input - Only for anonymous users */}
@@ -340,18 +434,33 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
           </Alert>
         )}
 
-        {/* Create Room Button */}
-        <Button
-          fullWidth
-          variant="contained"
-          size="large"
-          onClick={handleCreateRoom}
-          disabled={(!authState.isAuthenticated && !userName.trim()) || isLoading || !isConnected}
-          startIcon={isLoading ? <CircularProgress size={20} /> : <AddIcon />}
-          sx={{ mb: 1.5 }}
-        >
-          {isLoading ? 'Creating...' : 'Create New Room'}
-        </Button>
+        {/* Create Room Buttons */}
+        <Box sx={{ display: 'flex', gap: 1, mb: 1.5 }}>
+          <Button
+            fullWidth
+            variant="contained"
+            size="large"
+            onClick={handleCreateRoom}
+            disabled={(!authState.isAuthenticated && !userName.trim()) || isLoading || !isConnected}
+            startIcon={isLoading ? <CircularProgress size={20} /> : <AddIcon />}
+          >
+            {isLoading ? 'Creating...' : 'Create Battlefield Room'}
+          </Button>
+
+          {authState.isAdmin && (
+            <Button
+              fullWidth
+              variant="contained"
+              size="large"
+              color="secondary"
+              onClick={handleCreateAdminRoom}
+              disabled={isLoading || !isConnected}
+              startIcon={isLoading ? <CircularProgress size={20} /> : <AdminPanelSettingsIcon />}
+            >
+              {isLoading ? 'Creating...' : 'Create Admin Room'}
+            </Button>
+          )}
+        </Box>
 
         <Divider sx={{ my: 2 }}>
           <Chip label="OR" />
@@ -382,12 +491,85 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
           />
         </Box>
 
+        {/* Admin Rooms Section */}
+        {authState.isAdmin && adminRooms.length > 0 && (
+          <Box sx={{ mb: 3 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+              <Typography variant="h6" sx={{ fontWeight: 'bold', color: 'secondary.main' }}>
+                <AdminPanelSettingsIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                Admin Rooms ({adminRooms.length})
+              </Typography>
+            </Box>
+            
+            <Paper variant="outlined" sx={{ maxHeight: 200, overflow: 'auto', border: '2px solid', borderColor: 'secondary.main' }}>
+              <List dense>
+                {adminRooms.map((room) => (
+                  <ListItem 
+                    key={room.room_id}
+                    button
+                    onClick={() => handleJoinRoom(room.room_id)}
+                    disabled={isLoading || !isConnected}
+                    sx={{
+                      borderLeft: '4px solid #ff9800',
+                      '&:hover': {
+                        backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                      }
+                    }}
+                  >
+                    <ListItemIcon>
+                      <AdminPanelSettingsIcon color="secondary" />
+                    </ListItemIcon>
+                    <ListItemText 
+                      primary={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="subtitle1" sx={{ fontWeight: 'bold', color: 'secondary.main' }}>
+                            {room.name}
+                          </Typography>
+                          <Chip 
+                            label={room.room_id} 
+                            size="small" 
+                            variant="outlined"
+                            color="secondary"
+                            sx={{ fontSize: '10px' }}
+                          />
+                          {room.is_active && (
+                            <Chip 
+                              label="ACTIVE" 
+                              size="small" 
+                              color="success"
+                              sx={{ fontSize: '9px' }}
+                            />
+                          )}
+                          <Chip 
+                            label="ADMIN" 
+                            size="small" 
+                            color="secondary"
+                            sx={{ fontSize: '9px' }}
+                          />
+                        </Box>
+                      }
+                      secondary={
+                        <Box sx={{ mt: 0.5 }}>
+                          <Typography variant="caption" sx={{ display: 'block' }}>
+                            {room.users_count} admin{room.users_count !== 1 ? 's' : ''} 
+                            {room.is_active ? ' online' : ' • Last activity: ' + formatActivityTime(room.hours_since_activity)}
+                          </Typography>
+                        </Box>
+                      }
+                    />
+                  </ListItem>
+                ))}
+              </List>
+            </Paper>
+          </Box>
+        )}
+
         {/* Available Rooms */}
         {availableRooms.length > 0 && (
           <Box>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
               <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                {searchQuery.trim() ? `Search Results (${filteredRooms.length})` : `Available Rooms (${availableRooms.length})`}
+                {searchQuery.trim() ? `Search Results (${filteredRooms.length})` : `Battlefield Rooms (${availableRooms.length})`}
               </Typography>
               <Button 
                 size="small" 

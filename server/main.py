@@ -26,6 +26,7 @@ rooms: Dict[str, Dict[str, Any]] = {}  # room_id -> room_data
 user_sessions: Dict[str, Dict[str, Any]] = {}  # sid -> user_data
 users_db: Dict[str, Dict[str, Any]] = {}  # username -> user_data
 user_tokens: Dict[str, str] = {}  # token -> username
+admin_rooms: Dict[str, Dict[str, Any]] = {}  # admin_room_id -> admin_room_data
 
 # File paths
 ROOMS_FILE = "room_data/rooms.json"
@@ -66,6 +67,81 @@ def generate_token() -> str:
 def get_user_from_token(token: str) -> Optional[str]:
     """Get username from token"""
     return user_tokens.get(token)
+
+def is_admin_user(username: str) -> bool:
+    """Check if a user has admin privileges"""
+    if not username or username not in users_db:
+        return False
+    return users_db[username].get('is_admin', False)
+
+def create_admin_room(room_name="Admin Room", owner=None):
+    """Create a new admin room with initial state"""
+    return {
+        'name': room_name,
+        'room_toggles': {},  # room_id -> {enabled: bool, room_name: str}
+        'users': {},     # sid -> user_info
+        'created_at': asyncio.get_event_loop().time(),
+        'last_activity': asyncio.get_event_loop().time(),
+        'owner': owner,  # username of admin room owner
+        'is_admin_room': True
+    }
+
+def get_aggregated_room_data(admin_room_id: str) -> Dict[str, Any]:
+    """Get aggregated hex_data and lines from enabled rooms for admin room"""
+    if admin_room_id not in admin_rooms:
+        return {'hex_data': {}, 'lines': []}
+    
+    admin_room = admin_rooms[admin_room_id]
+    aggregated_hex_data = {}
+    aggregated_lines = []
+    
+    for room_id, toggle_data in admin_room['room_toggles'].items():
+        if toggle_data.get('enabled', False) and room_id in rooms:
+            room = rooms[room_id]
+            
+            # Keep original hex keys but add room metadata for layered display
+            for hex_key, hex_data in room['hex_data'].items():
+                if hex_key not in aggregated_hex_data:
+                    # First room to have this hex - create base structure
+                    aggregated_hex_data[hex_key] = {
+                        'fillColor': hex_data.get('fillColor', 'lightgray'),
+                        'rooms': []
+                    }
+                
+                # Add this room's data to the hex
+                if hex_data.get('fillColor') and hex_data['fillColor'] != 'lightgray':
+                    aggregated_hex_data[hex_key]['rooms'].append({
+                        'room_id': room_id,
+                        'room_name': room['name'],
+                        'fillColor': hex_data['fillColor']
+                    })
+                    
+                    # If this is the first colored hex from any room, use its color as primary
+                    if aggregated_hex_data[hex_key]['fillColor'] == 'lightgray':
+                        aggregated_hex_data[hex_key]['fillColor'] = hex_data['fillColor']
+            
+            # Add room information to lines with prefixed keys for conflict resolution
+            for line in room['lines']:
+                aggregated_line = {
+                    **line,
+                    'room_id': room_id,
+                    'room_name': room['name'],
+                    'line_id': f"{room_id}_{line.get('id', 'line')}",  # Add unique line ID
+                    'start': {
+                        **line['start']
+                        # Keep original hex keys for start/end so lines connect properly
+                    },
+                    'end': {
+                        **line['end']
+                        # Keep original hex keys for start/end so lines connect properly
+                    }
+                }
+                aggregated_lines.append(aggregated_line)
+    
+    return {
+        'hex_data': aggregated_hex_data,
+        'lines': aggregated_lines
+    }
 
 def ensure_data_directory():
     """Ensure the room_data directory exists"""
@@ -251,7 +327,25 @@ async def handle_disconnect(sid):
     user_data = user_sessions.get(sid)
     if user_data and user_data['room_id']:
         room_id = user_data['room_id']
-        if room_id in rooms and sid in rooms[room_id]['users']:
+        
+        if user_data.get('is_admin_room') and room_id in admin_rooms:
+            # Handle admin room disconnect
+            if sid in admin_rooms[room_id]['users']:
+                del admin_rooms[room_id]['users'][sid]
+                
+                # Update last activity
+                admin_rooms[room_id]['last_activity'] = asyncio.get_event_loop().time()
+                
+                # Notify other users in the admin room
+                await sio.emit('user_left', {
+                    'user_name': user_data['user_name'],
+                    'users_count': len(admin_rooms[room_id]['users'])
+                }, room=room_id)
+                
+                if len(admin_rooms[room_id]['users']) == 0:
+                    print(f'Admin room {room_id} ({admin_rooms[room_id]["name"]}) is now empty but preserved')
+        elif room_id in rooms and sid in rooms[room_id]['users']:
+            # Handle regular room disconnect
             del rooms[room_id]['users'][sid]
             
             # Update last activity
@@ -300,52 +394,143 @@ async def handle_create_room(sid, data):
     user_data = user_sessions.get(sid, {})
     user_name = data.get('user_name', 'Anonymous')
     room_name = data.get('room_name', 'Unnamed Room').strip()
+    is_admin_room = data.get('is_admin_room', False)
     
     # Use authenticated username if available, otherwise use provided name
     if user_data.get('is_authenticated'):
         actual_user_name = user_data['username']
         room_owner = user_data['username']
+        
+        # Check if user is admin for admin room creation
+        if is_admin_room and not is_admin_user(actual_user_name):
+            await sio.emit('room_error', {
+                'message': 'Only administrators can create admin rooms'
+            }, room=sid)
+            return
     else:
         actual_user_name = user_name
         room_owner = None  # Anonymous rooms have no owner
+        
+        # Anonymous users cannot create admin rooms
+        if is_admin_room:
+            await sio.emit('room_error', {
+                'message': 'You must be logged in as an administrator to create admin rooms'
+            }, room=sid)
+            return
     
     # Ensure room name is not empty
     if not room_name:
-        room_name = 'Unnamed Room'
+        room_name = 'Admin Room' if is_admin_room else 'Unnamed Room'
     
     room_id = generate_room_id()
-    while room_id in rooms:  # Ensure uniqueness
-        room_id = generate_room_id()
     
-    # Create room
-    rooms[room_id] = create_new_room(room_name, room_owner)
-    
-    # Join user to room
-    await sio.enter_room(sid, room_id)
-    
-    # Update user session
-    user_sessions[sid]['room_id'] = room_id
-    user_sessions[sid]['user_name'] = actual_user_name
-    
-    # Add user to room
-    rooms[room_id]['users'][sid] = {
-        'name': actual_user_name,
-        'joined_at': asyncio.get_event_loop().time(),
-        'is_authenticated': user_data.get('is_authenticated', False),
-        'username': user_data.get('username')  # None for anonymous users
-    }
-    
-    print(f'User {actual_user_name} created and joined room {room_id} ({room_name})')
-    
-    await sio.emit('room_created', {
-        'room_id': room_id,
-        'room_name': room_name,
-        'user_name': actual_user_name,
-        'is_owner': room_owner is not None,
-        'hex_data': rooms[room_id]['hex_data'],
-        'lines': rooms[room_id]['lines'],
-        'users': list(rooms[room_id]['users'].values())
-    }, room=sid)
+    if is_admin_room:
+        # Create admin room
+        while room_id in admin_rooms:  # Ensure uniqueness
+            room_id = generate_room_id()
+        
+        admin_rooms[room_id] = create_admin_room(room_name, room_owner)
+        
+        # Join user to admin room
+        await sio.enter_room(sid, room_id)
+        
+        # Update user session
+        user_sessions[sid]['room_id'] = room_id
+        user_sessions[sid]['user_name'] = actual_user_name
+        user_sessions[sid]['is_admin_room'] = True
+        
+        # Add user to admin room
+        admin_rooms[room_id]['users'][sid] = {
+            'name': actual_user_name,
+            'joined_at': asyncio.get_event_loop().time(),
+            'is_authenticated': user_data.get('is_authenticated', False),
+            'username': user_data.get('username')
+        }
+        
+        print(f'Admin {actual_user_name} created and joined admin room {room_id} ({room_name})')
+        
+        # Get aggregated data and available rooms
+        aggregated_data = get_aggregated_room_data(room_id)
+        regular_rooms = []
+        for rid, room in rooms.items():
+            # Calculate hex and line counts for each room
+            hex_count = sum(1 for hex_data in room['hex_data'].values() 
+                           if hex_data.get('fillColor') and hex_data['fillColor'] != 'lightgray')
+            line_count = len(room['lines'])
+            
+            # Initialize or update room toggle data with counts
+            if rid not in admin_rooms[room_id]['room_toggles']:
+                admin_rooms[room_id]['room_toggles'][rid] = {
+                    'enabled': False,
+                    'room_name': room['name'],
+                    'hex_count': hex_count,
+                    'line_count': line_count
+                }
+            else:
+                # Update counts for existing toggle
+                admin_rooms[room_id]['room_toggles'][rid].update({
+                    'hex_count': hex_count,
+                    'line_count': line_count
+                })
+            
+            regular_rooms.append({
+                'id': rid,  # Changed from 'room_id' to 'id' to match client expectation
+                'name': room['name'],  # Changed from 'room_name' to 'name'
+                'hex_count': hex_count,
+                'line_count': line_count,
+                'enabled': admin_rooms[room_id]['room_toggles'][rid]['enabled']
+            })
+        
+        print(f'Available regular rooms for admin room: {len(regular_rooms)}')
+        for room in regular_rooms:
+            print(f'  - {room["name"]} ({room["id"]})')
+        
+        await sio.emit('admin_room_created', {
+            'room_id': room_id,
+            'room_name': room_name,
+            'user_name': actual_user_name,
+            'is_owner': True,
+            'hex_data': aggregated_data['hex_data'],
+            'lines': aggregated_data['lines'],
+            'users': list(admin_rooms[room_id]['users'].values()),
+            'available_rooms': regular_rooms,
+            'room_toggles': admin_rooms[room_id]['room_toggles']
+        }, room=sid)
+    else:
+        # Create regular room (existing logic)
+        while room_id in rooms:  # Ensure uniqueness
+            room_id = generate_room_id()
+        
+        # Create room
+        rooms[room_id] = create_new_room(room_name, room_owner)
+        
+        # Join user to room
+        await sio.enter_room(sid, room_id)
+        
+        # Update user session
+        user_sessions[sid]['room_id'] = room_id
+        user_sessions[sid]['user_name'] = actual_user_name
+        user_sessions[sid]['is_admin_room'] = False
+        
+        # Add user to room
+        rooms[room_id]['users'][sid] = {
+            'name': actual_user_name,
+            'joined_at': asyncio.get_event_loop().time(),
+            'is_authenticated': user_data.get('is_authenticated', False),
+            'username': user_data.get('username')  # None for anonymous users
+        }
+        
+        print(f'User {actual_user_name} created and joined room {room_id} ({room_name})')
+        
+        await sio.emit('room_created', {
+            'room_id': room_id,
+            'room_name': room_name,
+            'user_name': actual_user_name,
+            'is_owner': room_owner is not None,
+            'hex_data': rooms[room_id]['hex_data'],
+            'lines': rooms[room_id]['lines'],
+            'users': list(rooms[room_id]['users'].values())
+        }, room=sid)
 
 @sio.on('join_room')
 async def handle_join_room(sid, data):
@@ -360,58 +545,180 @@ async def handle_join_room(sid, data):
     else:
         actual_user_name = user_name
     
-    if room_id not in rooms:
+    # Check if it's an admin room
+    if room_id in admin_rooms:
+        # Check if user is admin for admin room access
+        if not user_data.get('is_authenticated') or not is_admin_user(user_data['username']):
+            await sio.emit('room_error', {
+                'message': 'Only administrators can join admin rooms'
+            }, room=sid)
+            return
+        
+        # Join user to admin room
+        await sio.enter_room(sid, room_id)
+        
+        # Update user session
+        user_sessions[sid]['room_id'] = room_id
+        user_sessions[sid]['user_name'] = actual_user_name
+        user_sessions[sid]['is_admin_room'] = True
+        
+        # Add user to admin room
+        admin_rooms[room_id]['users'][sid] = {
+            'name': actual_user_name,
+            'joined_at': asyncio.get_event_loop().time(),
+            'is_authenticated': user_data.get('is_authenticated', False),
+            'username': user_data.get('username')
+        }
+        
+        # Update last activity
+        admin_rooms[room_id]['last_activity'] = asyncio.get_event_loop().time()
+        
+        room_owner = admin_rooms[room_id].get('owner')
+        is_owner = room_owner and user_data.get('username') == room_owner
+        
+        print(f'Admin {actual_user_name} joined admin room {room_id} ({admin_rooms[room_id]["name"]})')
+        
+        # Get aggregated data and available rooms
+        aggregated_data = get_aggregated_room_data(room_id)
+        regular_rooms = []
+        for rid, room in rooms.items():
+            # Calculate hex and line counts for each room
+            hex_count = sum(1 for hex_data in room['hex_data'].values() 
+                           if hex_data.get('fillColor') and hex_data['fillColor'] != 'lightgray')
+            line_count = len(room['lines'])
+            
+            # Initialize or update room toggle data with counts
+            if rid not in admin_rooms[room_id]['room_toggles']:
+                admin_rooms[room_id]['room_toggles'][rid] = {
+                    'enabled': False,
+                    'room_name': room['name'],
+                    'hex_count': hex_count,
+                    'line_count': line_count
+                }
+            else:
+                # Update counts for existing toggle
+                admin_rooms[room_id]['room_toggles'][rid].update({
+                    'hex_count': hex_count,
+                    'line_count': line_count
+                })
+            
+            regular_rooms.append({
+                'id': rid,  # Changed from 'room_id' to 'id' to match client expectation
+                'name': room['name'],  # Changed from 'room_name' to 'name'
+                'hex_count': hex_count,
+                'line_count': line_count,
+                'enabled': admin_rooms[room_id]['room_toggles'][rid]['enabled']
+            })
+        
+        # Send current admin room state to the new user
+        await sio.emit('admin_room_joined', {
+            'room_id': room_id,
+            'room_name': admin_rooms[room_id]['name'],
+            'user_name': actual_user_name,
+            'is_owner': is_owner,
+            'hex_data': aggregated_data['hex_data'],
+            'lines': aggregated_data['lines'],
+            'users': list(admin_rooms[room_id]['users'].values()),
+            'available_rooms': regular_rooms,
+            'room_toggles': admin_rooms[room_id]['room_toggles']
+        }, room=sid)
+        
+        # Notify other users in the admin room
+        await sio.emit('user_joined', {
+            'user_name': actual_user_name,
+            'is_authenticated': user_data.get('is_authenticated', False),
+            'users_count': len(admin_rooms[room_id]['users'])
+        }, room=room_id, skip_sid=sid)
+        
+    elif room_id not in rooms:
         await sio.emit('room_error', {
             'message': 'Room not found'
         }, room=sid)
         return
-    
-    # Join user to room
-    await sio.enter_room(sid, room_id)
-    
-    # Update user session
-    user_sessions[sid]['room_id'] = room_id
-    user_sessions[sid]['user_name'] = actual_user_name
-    
-    # Add user to room
-    rooms[room_id]['users'][sid] = {
-        'name': actual_user_name,
-        'joined_at': asyncio.get_event_loop().time(),
-        'is_authenticated': user_data.get('is_authenticated', False),
-        'username': user_data.get('username')  # None for anonymous users
-    }
-    
-    # Update last activity
-    rooms[room_id]['last_activity'] = asyncio.get_event_loop().time()
-    
-    room_owner = rooms[room_id].get('owner')
-    is_owner = room_owner and user_data.get('username') == room_owner
-    
-    print(f'User {actual_user_name} joined room {room_id} ({rooms[room_id]["name"]})')
-    
-    # Send current room state to the new user
-    await sio.emit('room_joined', {
-        'room_id': room_id,
-        'room_name': rooms[room_id]['name'],
-        'user_name': actual_user_name,
-        'is_owner': is_owner,
-        'hex_data': rooms[room_id]['hex_data'],
-        'lines': rooms[room_id]['lines'],
-        'users': list(rooms[room_id]['users'].values())
-    }, room=sid)
-    
-    # Notify other users in the room
-    await sio.emit('user_joined', {
-        'user_name': actual_user_name,
-        'is_authenticated': user_data.get('is_authenticated', False),
-        'users_count': len(rooms[room_id]['users'])
-    }, room=room_id, skip_sid=sid)
+    else:
+        # Join regular room (existing logic)
+        # Join user to room
+        await sio.enter_room(sid, room_id)
+        
+        # Update user session
+        user_sessions[sid]['room_id'] = room_id
+        user_sessions[sid]['user_name'] = actual_user_name
+        user_sessions[sid]['is_admin_room'] = False
+        
+        # Add user to room
+        rooms[room_id]['users'][sid] = {
+            'name': actual_user_name,
+            'joined_at': asyncio.get_event_loop().time(),
+            'is_authenticated': user_data.get('is_authenticated', False),
+            'username': user_data.get('username')  # None for anonymous users
+        }
+        
+        # Update last activity
+        rooms[room_id]['last_activity'] = asyncio.get_event_loop().time()
+        
+        room_owner = rooms[room_id].get('owner')
+        is_owner = room_owner and user_data.get('username') == room_owner
+        
+        print(f'User {actual_user_name} joined room {room_id} ({rooms[room_id]["name"]})')
+        
+        # Send current room state to the new user
+        await sio.emit('room_joined', {
+            'room_id': room_id,
+            'room_name': rooms[room_id]['name'],
+            'user_name': actual_user_name,
+            'is_owner': is_owner,
+            'hex_data': rooms[room_id]['hex_data'],
+            'lines': rooms[room_id]['lines'],
+            'users': list(rooms[room_id]['users'].values())
+        }, room=sid)
+        
+        # Notify other users in the room
+        await sio.emit('user_joined', {
+            'user_name': actual_user_name,
+            'is_authenticated': user_data.get('is_authenticated', False),
+            'users_count': len(rooms[room_id]['users'])
+        }, room=room_id, skip_sid=sid)
+
+async def notify_admin_rooms_of_room_update(updated_room_id: str):
+    """Notify all admin rooms that have this room enabled"""
+    for admin_room_id, admin_room in admin_rooms.items():
+        if updated_room_id in admin_room['room_toggles'] and admin_room['room_toggles'][updated_room_id].get('enabled', False):
+            # Update hex and line counts for the updated room
+            updated_room = rooms[updated_room_id]
+            hex_count = sum(1 for hex_data in updated_room['hex_data'].values() 
+                           if hex_data.get('fillColor') and hex_data['fillColor'] != 'lightgray')
+            line_count = len(updated_room['lines'])
+            
+            # Update the toggle data with new counts
+            admin_room['room_toggles'][updated_room_id].update({
+                'hex_count': hex_count,
+                'line_count': line_count
+            })
+            
+            # Get updated aggregated data
+            aggregated_data = get_aggregated_room_data(admin_room_id)
+            
+            # Notify all users in this admin room
+            await sio.emit('admin_room_data_updated', {
+                'hex_data': aggregated_data['hex_data'],
+                'lines': aggregated_data['lines'],
+                'room_toggles': admin_room['room_toggles'],
+                'updated_room': updated_room_id,
+                'updated_room_name': rooms[updated_room_id]['name']
+            }, room=admin_room_id)
 
 @sio.on('hex_update')
 async def handle_hex_update(sid, data):
     """Handle hex color updates"""
     user_data = user_sessions.get(sid)
     if not user_data or not user_data['room_id']:
+        return
+    
+    # Admin rooms don't allow direct hex updates
+    if user_data.get('is_admin_room'):
+        await sio.emit('admin_error', {
+            'message': 'Cannot edit markers in admin room - markers are read-only here'
+        }, room=sid)
         return
     
     room_id = user_data['room_id']
@@ -435,12 +742,22 @@ async def handle_hex_update(sid, data):
         'fill_color': fill_color,
         'user_name': user_data['user_name']
     }, room=room_id, skip_sid=sid)
+    
+    # Notify admin rooms that have this room enabled
+    await notify_admin_rooms_of_room_update(room_id)
 
 @sio.on('line_add')
 async def handle_line_add(sid, data):
     """Handle new line creation"""
     user_data = user_sessions.get(sid)
     if not user_data or not user_data['room_id']:
+        return
+    
+    # Admin rooms don't allow direct line additions
+    if user_data.get('is_admin_room'):
+        await sio.emit('admin_error', {
+            'message': 'Cannot add lines in admin room - lines are read-only here'
+        }, room=sid)
         return
     
     room_id = user_data['room_id']
@@ -460,12 +777,22 @@ async def handle_line_add(sid, data):
         'line': line_data,
         'user_name': user_data['user_name']
     }, room=room_id, skip_sid=sid)
+    
+    # Notify admin rooms that have this room enabled
+    await notify_admin_rooms_of_room_update(room_id)
 
 @sio.on('hex_erase')
 async def handle_hex_erase(sid, data):
     """Handle hex and associated lines erasing"""
     user_data = user_sessions.get(sid)
     if not user_data or not user_data['room_id']:
+        return
+    
+    # Admin rooms don't allow direct hex erasing
+    if user_data.get('is_admin_room'):
+        await sio.emit('admin_error', {
+            'message': 'Cannot erase markers in admin room - markers are read-only here'
+        }, room=sid)
         return
     
     room_id = user_data['room_id']
@@ -493,6 +820,9 @@ async def handle_hex_erase(sid, data):
         'lines': rooms[room_id]['lines'],
         'user_name': user_data['user_name']
     }, room=room_id, skip_sid=sid)
+    
+    # Notify admin rooms that have this room enabled
+    await notify_admin_rooms_of_room_update(room_id)
 
 @sio.on('cursor_update')
 async def handle_cursor_update(sid, data):
@@ -548,7 +878,31 @@ async def handle_leave_room(sid):
         return
     
     room_id = user_data['room_id']
-    if room_id in rooms and sid in rooms[room_id]['users']:
+    
+    if user_data.get('is_admin_room') and room_id in admin_rooms:
+        # Handle leaving admin room
+        if sid in admin_rooms[room_id]['users']:
+            # Remove user from admin room
+            del admin_rooms[room_id]['users'][sid]
+            
+            # Update last activity
+            admin_rooms[room_id]['last_activity'] = asyncio.get_event_loop().time()
+            
+            # Leave the socket.io room
+            await sio.leave_room(sid, room_id)
+            
+            # Notify other users in the admin room
+            await sio.emit('user_left', {
+                'user_name': user_data['user_name'],
+                'users_count': len(admin_rooms[room_id]['users'])
+            }, room=room_id)
+            
+            print(f'Admin {user_data["user_name"]} left admin room {room_id} ({admin_rooms[room_id]["name"]})')
+            
+            if len(admin_rooms[room_id]['users']) == 0:
+                print(f'Admin room {room_id} ({admin_rooms[room_id]["name"]}) is now empty but preserved')
+    elif room_id in rooms and sid in rooms[room_id]['users']:
+        # Handle leaving regular room
         # Remove user from room
         del rooms[room_id]['users'][sid]
         
@@ -572,6 +926,7 @@ async def handle_leave_room(sid):
     
     # Clear user's room association
     user_sessions[sid]['room_id'] = None
+    user_sessions[sid]['is_admin_room'] = False
     
     # Confirm room left to user
     await sio.emit('room_left', {'success': True}, room=sid)
@@ -616,7 +971,94 @@ async def handle_delete_room(sid, data):
 
 @sio.on('message')
 async def handle_message(sid, data):
-    print(f'Received message: {data}')
+    print(f'Message from {sid}: {data}')
+
+@sio.on('admin_toggle_room')
+async def handle_admin_toggle_room(sid, data):
+    """Toggle room visibility in admin room"""
+    user_data = user_sessions.get(sid)
+    if not user_data or not user_data.get('is_admin_room') or not user_data['room_id']:
+        await sio.emit('admin_error', {
+            'message': 'Not in an admin room'
+        }, room=sid)
+        return
+    
+    room_id = user_data['room_id']
+    if room_id not in admin_rooms:
+        return
+    
+    target_room_id = data.get('room_id')
+    enabled = data.get('enabled', False)
+    
+    if target_room_id not in rooms:
+        await sio.emit('admin_error', {
+            'message': 'Target room not found'
+        }, room=sid)
+        return
+    
+    # Calculate hex and line counts for the target room
+    target_room = rooms[target_room_id]
+    hex_count = sum(1 for hex_data in target_room['hex_data'].values() 
+                   if hex_data.get('fillColor') and hex_data['fillColor'] != 'lightgray')
+    line_count = len(target_room['lines'])
+    
+    # Update toggle state with counts
+    admin_rooms[room_id]['room_toggles'][target_room_id] = {
+        'enabled': enabled,
+        'room_name': rooms[target_room_id]['name'],
+        'hex_count': hex_count,
+        'line_count': line_count
+    }
+    
+    # Update last activity
+    admin_rooms[room_id]['last_activity'] = asyncio.get_event_loop().time()
+    
+    # Get updated aggregated data
+    aggregated_data = get_aggregated_room_data(room_id)
+    
+    # Broadcast updated data to all users in admin room
+    await sio.emit('admin_room_data_updated', {
+        'hex_data': aggregated_data['hex_data'],
+        'lines': aggregated_data['lines'],
+        'room_toggles': admin_rooms[room_id]['room_toggles'],
+        'toggled_room_name': rooms[target_room_id]['name'],
+        'enabled': enabled
+    }, room=room_id)
+
+@sio.on('get_admin_rooms')
+async def handle_get_admin_rooms(sid):
+    """Get list of available admin rooms (for admins only)"""
+    user_data = user_sessions.get(sid, {})
+    
+    if not user_data.get('is_authenticated') or not is_admin_user(user_data['username']):
+        await sio.emit('admin_error', {
+            'message': 'Admin privileges required'
+        }, room=sid)
+        return
+    
+    admin_room_list = []
+    current_time = asyncio.get_event_loop().time()
+    
+    for room_id, room_data in admin_rooms.items():
+        # Calculate time since last activity
+        time_since_activity = current_time - room_data['last_activity']
+        hours_since_activity = time_since_activity / 3600
+        
+        admin_room_list.append({
+            'room_id': room_id,
+            'name': room_data['name'],
+            'users_count': len(room_data['users']),
+            'created_at': room_data['created_at'],
+            'last_activity': room_data['last_activity'],
+            'hours_since_activity': round(hours_since_activity, 1),
+            'is_active': len(room_data['users']) > 0,
+            'is_admin_room': True
+        })
+    
+    # Sort by last activity (most recent first)
+    admin_room_list.sort(key=lambda x: x['last_activity'], reverse=True)
+    
+    await sio.emit('admin_rooms_list', {'admin_rooms': admin_room_list}, room=sid)
 
 @app.get("/")
 async def read_root(request: Request):
@@ -634,39 +1076,51 @@ async def read_root(request: Request):
 @app.post("/api/register")
 async def register_user(user_data: UserRegister):
     """Register a new user"""
-    username = user_data.username.strip()
-    password = user_data.password
+    try:
+        username = user_data.username.strip()
+        password = user_data.password
+        
+        # Validation
+        if not username or len(username) < 2:
+            raise HTTPException(status_code=400, detail="Username must be at least 2 characters long")
+        
+        if not password or len(password) < 4:
+            raise HTTPException(status_code=400, detail="Password must be at least 4 characters long")
+        
+        # Check if username already exists
+        if username in users_db:
+            raise HTTPException(status_code=409, detail="Username already exists")
+        
+        # Check if this is the first user (make them admin)
+        is_first_user = len(users_db) == 0
+        
+        # Hash password and create user
+        password_hash = hash_password(password)
+        
+        users_db[username] = {
+            'username': username,
+            'password_hash': password_hash,
+            'created_at': asyncio.get_event_loop().time(),
+            'last_login': None,
+            'is_admin': is_first_user  # First user becomes admin
+        }
+        
+        # Save to file
+        save_users_to_file()
+        
+        logging.info(f"New user registered: {username}" + (" (admin)" if is_first_user else ""))
+        
+        return {
+            "message": "User registered successfully" + (" as admin" if is_first_user else ""),
+            "username": username,
+            "is_admin": is_first_user
+        }
     
-    # Validate input
-    if not username or len(username) < 3:
-        raise HTTPException(status_code=400, detail="Username must be at least 3 characters")
-    if not password or len(password) < 4:
-        raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
-    
-    # Check if username already exists
-    if username.lower() in [u.lower() for u in users_db.keys()]:
-        raise HTTPException(status_code=400, detail="Username already exists")
-    
-    # Create user
-    users_db[username] = {
-        'username': username,
-        'password_hash': hash_password(password),
-        'created_at': asyncio.get_event_loop().time(),
-        'last_login': None
-    }
-    
-    # Generate token
-    token = generate_token()
-    user_tokens[token] = username
-    
-    logging.info(f"New user registered: {username}")
-    
-    return {
-        "success": True,
-        "message": "User registered successfully",
-        "token": token,
-        "username": username
-    }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Registration error: {e}")
+        raise HTTPException(status_code=500, detail="Registration failed")
 
 @app.post("/api/login")
 async def login_user(user_data: UserLogin):
@@ -708,37 +1162,92 @@ async def login_user(user_data: UserLogin):
 
 @app.post("/api/logout")
 async def logout_user(request: Request):
-    """Logout user"""
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="No token provided")
+    """Logout user and invalidate token"""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            raise HTTPException(status_code=401, detail="No valid token provided")
+        
+        token = auth_header.split(' ')[1]
+        username = get_user_from_token(token)
+        
+        if username and token in user_tokens:
+            # Remove token
+            del user_tokens[token]
+            logging.info(f"User {username} logged out successfully")
+        
+        return {"message": "Logged out successfully"}
     
-    token = auth_header.split(" ")[1]
-    username = user_tokens.pop(token, None)
+    except Exception as e:
+        logging.error(f"Logout error: {e}")
+        raise HTTPException(status_code=500, detail="Logout failed")
+
+@app.post("/api/promote-admin")
+async def promote_to_admin(request: Request):
+    """Promote user to admin (requires existing admin or first user)"""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            raise HTTPException(status_code=401, detail="No valid token provided")
+        
+        token = auth_header.split(' ')[1]
+        requesting_username = get_user_from_token(token)
+        
+        if not requesting_username or requesting_username not in users_db:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        
+        # Allow if requesting user is already admin OR if no admin exists yet
+        has_any_admin = any(user.get('is_admin', False) for user in users_db.values())
+        if not (is_admin_user(requesting_username) or not has_any_admin):
+            raise HTTPException(status_code=403, detail="Admin privileges required")
+        
+        data = await request.json()
+        target_username = data.get('username')
+        
+        if not target_username or target_username not in users_db:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Promote user to admin
+        users_db[target_username]['is_admin'] = True
+        save_users_to_file()
+        
+        logging.info(f"User {target_username} promoted to admin by {requesting_username}")
+        
+        return {
+            "message": f"User {target_username} promoted to admin successfully",
+            "username": target_username,
+            "is_admin": True
+        }
     
-    if username:
-        logging.info(f"User logged out: {username}")
-        return {"success": True, "message": "Logout successful"}
-    else:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Admin promotion error: {e}")
+        raise HTTPException(status_code=500, detail="Admin promotion failed")
 
 @app.get("/api/verify-token")
 async def verify_token(request: Request):
-    """Verify if token is valid"""
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="No token provided")
+    """Verify token and return user info"""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return {"valid": False, "message": "No token provided"}
+        
+        token = auth_header.split(' ')[1]
+        username = get_user_from_token(token)
+        
+        if username and username in users_db:
+            return {
+                "valid": True, 
+                "username": username,
+                "is_admin": users_db[username].get('is_admin', False)
+            }
+        else:
+            return {"valid": False, "message": "Invalid token"}
     
-    token = auth_header.split(" ")[1]
-    username = get_user_from_token(token)
-    
-    if username and username in users_db:
-        return {
-            "valid": True,
-            "username": username
-        }
-    else:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    except Exception as e:
+        logging.error(f"Token verification error: {e}")
+        return {"valid": False, "message": "Token verification failed"}
 
 @app.get("/api/save-rooms")
 async def manual_save_rooms():

@@ -9,8 +9,8 @@ const Hexagon = ({
   onMouseEnter, 
   isHighlighted, // General purpose highlighting (e.g., for drag over, line start)
   isSelectedForColoring, // Specific for when a hex is selected for a color change action
-  isHovered// General hover state for all interaction modes
- 
+  isHovered, // General hover state for all interaction modes
+  isInLinePath // Hexes that are part of the current line path being drawn
 }) => {
   const hexWidth = Math.sqrt(3) * size;
   // const hexHeight = 2 * size; // Not directly used for points if size is radius
@@ -48,10 +48,35 @@ const Hexagon = ({
   }
   if (isHighlighted || isSelectedForColoring) {
     opacity = 0.5; // Highlighted states get higher opacity
+  } else if (isInLinePath) {
+    opacity = 0.3; // Line path hexes get moderate opacity
   } else if (isHovered && !isPainted) {
     opacity = 0.0; // Hover on unpainted hexes gets slight opacity
   } else if (isHovered && isPainted) {
     opacity = 0.5; // Hover on painted hexes gets slightly higher opacity
+  }
+
+  // Determine stroke color and properties
+  let strokeColor = 'black';
+  let strokeWidth = 1;
+  let strokeOpacity = 0.8;
+  
+  if (isHighlighted) {
+    strokeColor = 'dodgerblue';
+    strokeWidth = 12.5;
+    strokeOpacity = 1;
+  } else if (isSelectedForColoring) {
+    strokeColor = 'darkorange';
+    strokeWidth = 12.5;
+    strokeOpacity = 1;
+  } else if (isInLinePath) {
+    strokeColor = '#ffd700'; // Gold color for line path
+    strokeWidth = 8;
+    strokeOpacity = 0.8;
+  } else if (isHovered) {
+    strokeColor = '#00ffff';
+    strokeWidth = 12.5;
+    strokeOpacity = 1;
   }
 
   return (
@@ -69,9 +94,9 @@ const Hexagon = ({
         points={points} 
         fill={fillColor} 
         fillOpacity={opacity}
-        stroke={isHighlighted ? 'dodgerblue' : (isSelectedForColoring ? 'darkorange' : (isHovered ? '#00ffff' : 'black'))} 
-        strokeWidth={isHighlighted || isSelectedForColoring || isHovered ? 12.5 : 1} 
-        strokeOpacity={isHighlighted || isSelectedForColoring || isHovered ? 1 : 0.8}
+        stroke={strokeColor} 
+        strokeWidth={strokeWidth} 
+        strokeOpacity={strokeOpacity}
       />
       
       

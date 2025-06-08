@@ -78,6 +78,55 @@ const presetColors = [
   '#000000', // Black
 ];
 
+// Hex line drawing algorithm - finds all hexes that a line passes through
+const getHexLine = (startHex, endHex) => {
+  if (!startHex || !endHex) return [];
+  
+  const startAxial = evenq_to_axial(startHex);
+  const endAxial = evenq_to_axial(endHex);
+  
+  const distance = Math.max(
+    Math.abs(startAxial.q - endAxial.q),
+    Math.abs(startAxial.q + startAxial.r - endAxial.q - endAxial.r),
+    Math.abs(startAxial.r - endAxial.r)
+  );
+  
+  if (distance === 0) return [startHex];
+  
+  const results = [];
+  for (let i = 0; i <= distance; i++) {
+    const t = i / distance;
+    const q = Math.round(startAxial.q + (endAxial.q - startAxial.q) * t);
+    const r = Math.round(startAxial.r + (endAxial.r - startAxial.r) * t);
+    
+    // Convert back to offset coordinates
+    const offsetQ = q;
+    const offsetR = r + (q + (q & 1)) / 2;
+    
+    results.push({ q: offsetQ, r: offsetR, key: `${offsetQ},${offsetR}` });
+  }
+  
+  return results;
+};
+
+// Helper function to find hex at a specific position
+const findHexAtPosition = (hexes, x, y, hexSize) => {
+  let closestHex = null;
+  let minDistance = Infinity;
+  
+  for (const hex of hexes) {
+    const distance = Math.sqrt(
+      Math.pow(hex.centerX - x, 2) + Math.pow(hex.centerY - y, 2)
+    );
+    if (distance < hexSize && distance < minDistance) {
+      minDistance = distance;
+      closestHex = hex;
+    }
+  }
+  
+  return closestHex;
+};
+
 const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomData, initialHexData = {}, initialLines = [], onBackgroundToggle }) => {
   const [hexData, setHexData] = useState(initialHexData); 
   const [selectedColor, setSelectedColor] = useState('#0000FF');
@@ -94,6 +143,7 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
   const [isDraggingLine, setIsDraggingLine] = useState(false);
   const [previewLine, setPreviewLine] = useState(null); // {x1, y1, x2, y2} - local coords
   const [hoveredHexKey, setHoveredHexKey] = useState(null);
+  const [highlightedLinePath, setHighlightedLinePath] = useState([]); // Hexes that are part of the current line path
 
   // Coloring State
   const [isPainting, setIsPainting] = useState(false); // For brush-like coloring
@@ -333,6 +383,14 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
     if (interactionMode === 'draw' && isDraggingLine && lineStartHex) {
       // Snap preview line to entering hex's center (local coords)
       setPreviewLine({ x1: lineStartHex.centerX, y1: lineStartHex.centerY, x2: hex.centerX, y2: hex.centerY });
+      
+      // Calculate and highlight the line path
+      const linePath = getHexLine(lineStartHex, hex);
+      setHighlightedLinePath(linePath.map(h => h.key));
+    } else if (interactionMode === 'draw' && lineStartHex && !isDraggingLine) {
+      // For click-to-click line drawing, also show path on hover
+      const linePath = getHexLine(lineStartHex, hex);
+      setHighlightedLinePath(linePath.map(h => h.key));
     } else if (interactionMode === 'color' && isPainting) {
       applyColorToHex(hex.key);
     } else if (interactionMode === 'erase' && isErasing) {
@@ -374,8 +432,17 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
           x2: localX, 
           y2: localY 
         });
+        
+        // Find the closest hex to the mouse position for line path calculation
+        const closestHex = findHexAtPosition(layout.hexes, localX, localY, hexSize);
+        if (closestHex) {
+          const linePath = getHexLine(lineStartHex, closestHex);
+          setHighlightedLinePath(linePath.map(h => h.key));
+        } else {
+          setHighlightedLinePath([]);
+        }
     }
-  }, [interactionMode, isDraggingLine, lineStartHex, layout.offsetX, layout.offsetY, hoveredHexKey]);
+  }, [interactionMode, isDraggingLine, lineStartHex, layout.offsetX, layout.offsetY, hoveredHexKey, layout.hexes, hexSize]);
 
   const handleSvgMouseUp = useCallback(() => {
     if (interactionMode === 'draw' && isDraggingLine && lineStartHex) {
@@ -399,6 +466,7 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
         setIsDraggingLine(false);
         setLineStartHex(null);
         setPreviewLine(null);
+        setHighlightedLinePath([]);
     }
     if (interactionMode === 'color' && isPainting) {
       setIsPainting(false);
@@ -434,6 +502,7 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
       setIsDraggingLine(false);
       setLineStartHex(null);
       setPreviewLine(null);
+      setHighlightedLinePath([]);
     } else if (interactionMode === 'color' && isPainting) {
       setIsPainting(false);
     } else if (interactionMode === 'erase' && isErasing) {
@@ -455,7 +524,8 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
     if (interactionMode === 'draw' && !isDraggingLine) {
       if (!lineStartHex) {
         setLineStartHex(hex);
-        setPreviewLine(null); 
+        setPreviewLine(null);
+        setHighlightedLinePath([]); 
       } else {
         if (lineStartHex.key !== hex.key) {
           const distance = calculateDistance(lineStartHex, hex);
@@ -470,6 +540,7 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
           }
         }
         setLineStartHex(null);
+        setHighlightedLinePath([]);
       }
     } else if (interactionMode === 'color' && !isPainting) {
         setLastColoredHexKey(hex.key); 
@@ -486,6 +557,7 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
       setIsDraggingLine(false);
       setPreviewLine(null);
       setHoveredHexKey(null);
+      setHighlightedLinePath([]);
       // setLastColoredHexKey(null); // Optional: decide if last colored info should persist across mode changes
     }
   };
@@ -906,13 +978,14 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
                     const currentHexData = hexData[hex.key] || {};
                     const isPaintedHex = currentHexData.fillColor && currentHexData.fillColor !== 'lightgray';
                     const isErasableHighlight = interactionMode === 'erase' && isHovered && (isErasableEndpoint || isPaintedHex);
+                    const isInLinePath = highlightedLinePath.includes(hex.key);
                     
                     const highlight = interactionMode === 'draw' && (isLineStartingPoint || (isDraggingLine && isHovered));
                     const isGeneralHover = isHovered && !highlight && !isErasableHighlight;
                     const isSelected = interactionMode === 'color' && lastColoredHexKey === hex.key && !isPainting;
                     
-                    // Only render if NOT highlighted, hovered, or selected
-                    return !highlight && !isErasableHighlight && !isGeneralHover && !isSelected;
+                    // Only render if NOT highlighted, hovered, selected, or in line path
+                    return !highlight && !isErasableHighlight && !isGeneralHover && !isSelected && !isInLinePath;
                   }).map((hex) => {
                     const currentHexData = hexData[hex.key] || {};
                     
@@ -944,13 +1017,14 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
                     const currentHexData = hexData[hex.key] || {};
                     const isPaintedHex = currentHexData.fillColor && currentHexData.fillColor !== 'lightgray';
                     const isErasableHighlight = interactionMode === 'erase' && isHovered && (isErasableEndpoint || isPaintedHex);
+                    const isInLinePath = highlightedLinePath.includes(hex.key);
                     
                     const highlight = interactionMode === 'draw' && (isLineStartingPoint || (isDraggingLine && isHovered));
                     const isGeneralHover = isHovered && !highlight && !isErasableHighlight;
                     const isSelected = interactionMode === 'color' && lastColoredHexKey === hex.key && !isPainting;
                     
-                    // Only render if highlighted, hovered, or selected
-                    return highlight || isErasableHighlight || isGeneralHover || isSelected;
+                    // Only render if highlighted, hovered, selected, or in line path
+                    return highlight || isErasableHighlight || isGeneralHover || isSelected || isInLinePath;
                   }).map((hex) => {
                     const currentHexData = hexData[hex.key] || {};
                     const isLineStartingPoint = interactionMode === 'draw' && lineStartHex?.key === hex.key;
@@ -959,6 +1033,7 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
                       lines.some(line => line.start.key === hex.key || line.end.key === hex.key);
                     const isPaintedHex = currentHexData.fillColor && currentHexData.fillColor !== 'lightgray';
                     const isErasableHighlight = interactionMode === 'erase' && isHovered && (isErasableEndpoint || isPaintedHex);
+                    const isInLinePath = highlightedLinePath.includes(hex.key);
                     
                     const highlight = interactionMode === 'draw' && (isLineStartingPoint || (isDraggingLine && isHovered));
                     const isGeneralHover = isHovered && !highlight && !isErasableHighlight;
@@ -976,6 +1051,7 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
                         isHighlighted={highlight || isErasableHighlight}
                         isHovered={isGeneralHover}
                         isSelectedForColoring={interactionMode === 'color' && lastColoredHexKey === hex.key && !isPainting}
+                        isInLinePath={isInLinePath}
                         centerX={hex.centerX} 
                         centerY={hex.centerY}
                       />
