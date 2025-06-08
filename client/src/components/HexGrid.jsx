@@ -8,16 +8,45 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import Switch from '@mui/material/Switch';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import BrushIcon from '@mui/icons-material/Brush';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import AdsClickIcon from '@mui/icons-material/AdsClick';
 
 // Helper function to calculate distance between two hexes (axial coordinates)
+// Returns the minimum number of hex steps needed to move from hexA to hexB
+
+// Throttle function to limit socket emissions
+const throttle = (func, limit) => {
+  let inThrottle;
+  return function() {
+    const args = arguments;
+    const context = this;
+    if (!inThrottle) {
+      func.apply(context, args);
+      inThrottle = true;
+      setTimeout(() => inThrottle = false, limit);
+    }
+  };
+};
+
+const evenq_to_axial = (hex) => {
+    const q = hex.q
+    const r = hex.r - (hex.q + (hex.q&1)) / 2
+    return {q, r}
+}
+
+
 const calculateDistance = (hexA, hexB) => {
-  const dx = hexA.q - hexB.q;
-  const dy = hexA.r - hexB.r;
-  return Math.sqrt(dx * dx + dy * dy);
+  // Convert axial coordinates to cube coordinates
+  const a_axial = evenq_to_axial(hexA)
+  const b_axial = evenq_to_axial(hexB)
+
+  return (Math.abs(a_axial.q - b_axial.q)   
+  + Math.abs(a_axial.q + a_axial.r - b_axial.q - b_axial.r)
+  + Math.abs(a_axial.r - b_axial.r))/2 
 };
 
 // Generate a consistent color for each user based on their username
@@ -49,12 +78,16 @@ const presetColors = [
   '#000000', // Black
 ];
 
-const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomData, initialHexData = {}, initialLines = [] }) => {
+const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomData, initialHexData = {}, initialLines = [], onBackgroundToggle }) => {
   const [hexData, setHexData] = useState(initialHexData); 
   const [selectedColor, setSelectedColor] = useState('#0000FF');
   
   const [lines, setLines] = useState(initialLines);
   const [interactionMode, setInteractionMode] = useState('color'); // 'color', 'draw', 'erase'
+
+  // Panning state to disable hex interactions during panning
+  const [isPanning, setIsPanning] = useState(false);
+  const [isTransforming, setIsTransforming] = useState(false);
 
   // Line Drawing State
   const [lineStartHex, setLineStartHex] = useState(null); // For click-click or drag start
@@ -72,7 +105,23 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
   // Other users' cursors state
   const [otherUsersCursors, setOtherUsersCursors] = useState({}); // { userName: { hex_key, mode, timestamp } }
 
+  // Background visibility state
+  const [showBackground, setShowBackground] = useState(true);
+
   const svgRef = useRef(null);
+
+  // Throttled cursor update function to prevent excessive socket emissions
+  const throttledCursorUpdate = useCallback(
+    throttle((hexKey, mode) => {
+      if (socket && roomData && !isPanning && !isTransforming) {
+        socket.emit('cursor_update', {
+          hex_key: hexKey,
+          mode: mode
+        });
+      }
+    }, 100), // Limit to once per 100ms
+    [socket, roomData, isPanning, isTransforming]
+  );
 
   // Socket listeners for multiplayer updates
   useEffect(() => {
@@ -195,13 +244,13 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
     const offset_y =-2;
 
     
-    for (let r = 0; r < gridHeight; r++) {
+    for (let r = startingHex.r; r < gridHeight+1; r++) {
  
-      for (let q =0; q < gridWidth ; q++) {
+      for (let q =startingHex.q; q < gridWidth+1 ; q++) {
         
         // Calculate local centerX and centerY (relative to the eventual <g> transform)
-        const centerX =  (hexSize * 1.5 + offset_x) * q + hexSize;
-        const centerY =  (hexSize * Math.sqrt(3) + offset_y) * r + hexSize * (1 + q % 2) * Math.sqrt(3) / 2; 
+        const centerX =  (hexSize * 1.5 - offset_x) * (q-startingHex.q) + hexSize;
+        const centerY =  (hexSize * Math.sqrt(3) + offset_y) * (r-startingHex.r) + hexSize * (1 + (q-startingHex.q) % 2) * Math.sqrt(3) / 2; 
         const key = `${q},${r}`;
         hexes.push({ q, r, centerX, centerY, key });
 
@@ -254,6 +303,9 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
     // Only handle left mouse button for hex interactions
     if (event.button !== 0) return;
     
+    // Don't handle hex interactions while panning or transforming
+    if (isPanning || isTransforming) return;
+    
     if (interactionMode === 'draw') {
       setIsDraggingLine(true);
       setLineStartHex(hex); 
@@ -267,18 +319,16 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
       setIsErasing(true);
     }
     // No mousedown action for 'select' mode directly, click will handle it.
-  }, [interactionMode, applyColorToHex, eraseHex]);
+  }, [interactionMode, applyColorToHex, eraseHex, isPanning, isTransforming]);
 
   const handleHexMouseEnter = useCallback((hex) => {
+    // Don't handle hex interactions while panning or transforming
+    if (isPanning || isTransforming) return;
+    
     setHoveredHexKey(hex.key);
     
-    // Emit cursor position to other users
-    if (socket && roomData) {
-      socket.emit('cursor_update', {
-        hex_key: hex.key,
-        mode: interactionMode
-      });
-    }
+    // Use throttled cursor update instead of direct socket emission
+    throttledCursorUpdate(hex.key, interactionMode);
     
     if (interactionMode === 'draw' && isDraggingLine && lineStartHex) {
       // Snap preview line to entering hex's center (local coords)
@@ -288,22 +338,42 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
     } else if (interactionMode === 'erase' && isErasing) {
       eraseHex(hex.key);
     }
-  }, [interactionMode, isDraggingLine, lineStartHex, isPainting, isErasing, applyColorToHex, eraseHex, socket, roomData]);
+  }, [interactionMode, isDraggingLine, lineStartHex, isPainting, isErasing, applyColorToHex, eraseHex, throttledCursorUpdate, isPanning, isTransforming]);
   const svgWidth = gridWidth * hexSize * 1.5 + hexSize * 2;
   const svgHeight = gridHeight * hexSize * 1.7 + hexSize * 2;
   
-  console.log('SVG Dimensions:', { svgWidth, svgHeight, gridWidth, gridHeight, hexSize });
+  // console.log('SVG Dimensions:', { svgWidth, svgHeight, gridWidth, gridHeight, hexSize });
 
   const handleSvgMouseMove = useCallback((event) => {
     if (interactionMode === 'draw' && isDraggingLine && lineStartHex && svgRef.current) {
-        const svgRect = svgRef.current.getBoundingClientRect();
-        // Calculate mouse position in local <g> coordinates
+        // If we're hovering over a hex, let handleHexMouseEnter handle the preview
+        // This ensures the line snaps to hex centers when possible
+        if (hoveredHexKey) {
+          return;
+        }
         
-        const endHex = layout.hexes.find(h => h.key === hoveredHexKey);
-        const x2 = endHex.centerX + event.clientX ;
-        const y2 = endHex.centerY + event.clientY ;
+        // When not hovering over a hex, follow the mouse cursor
+        const svgRect = svgRef.current.getBoundingClientRect();
+        
+        // Get the actual transform from the SVG element
+        const svgElement = svgRef.current;
+        const pt = svgElement.createSVGPoint();
+        pt.x = event.clientX;
+        pt.y = event.clientY;
+        
+        // Transform to SVG coordinates
+        const svgP = pt.matrixTransform(svgElement.getScreenCTM().inverse());
+        
+        // Convert to local <g> coordinates by accounting for the transform offset
+        const localX = svgP.x - layout.offsetX;
+        const localY = svgP.y - layout.offsetY;
 
-        setPreviewLine({ x1: lineStartHex.centerX, y1: lineStartHex.centerY, x2, y2 });
+        setPreviewLine({ 
+          x1: lineStartHex.centerX, 
+          y1: lineStartHex.centerY, 
+          x2: localX, 
+          y2: localY 
+        });
     }
   }, [interactionMode, isDraggingLine, lineStartHex, layout.offsetX, layout.offsetY, hoveredHexKey]);
 
@@ -344,6 +414,9 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
     // Only handle left mouse button for hex interactions
     if (event && event.button !== 0) return;
     
+    // Don't handle hex interactions while panning or transforming
+    if (isPanning || isTransforming) return;
+    
     // This specifically handles mouse up *on a hex*
     if (interactionMode === 'draw' && isDraggingLine && lineStartHex) {
       if (lineStartHex.key !== hex.key) {
@@ -370,11 +443,14 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
     setHoveredHexKey(null);
     // If not dragging, SvgMouseUp will handle it via hoveredHexKey, so this becomes a fallback
     // or can be simplified if SvgMouseUp is robust enough.
-  }, [interactionMode, isDraggingLine, lineStartHex, isPainting, isErasing, lines, selectedColor, socket, roomData]);
+  }, [interactionMode, isDraggingLine, lineStartHex, isPainting, isErasing, lines, selectedColor, socket, roomData, isPanning, isTransforming]);
 
   const handleHexClick = useCallback((hex, event) => {
     // Only handle left mouse button for hex interactions
     if (event && event.button !== 0) return;
+    
+    // Don't handle hex interactions while panning or transforming
+    if (isPanning || isTransforming) return;
     
     if (interactionMode === 'draw' && !isDraggingLine) {
       if (!lineStartHex) {
@@ -399,7 +475,7 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
         setLastColoredHexKey(hex.key); 
     }
     // Erase mode now works on mouse down/drag, not click
-  }, [interactionMode, isDraggingLine, lineStartHex, lines, isPainting, selectedColor, socket, roomData]);
+  }, [interactionMode, isDraggingLine, lineStartHex, lines, isPainting, selectedColor, socket, roomData, isPanning, isTransforming]);
 
   const handleInteractionModeChange = (event, newMode) => {
     if (newMode !== null) { // Prevent unselecting all buttons in ToggleButtonGroup
@@ -417,6 +493,24 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
   const getHexAtKey = (key) => layout.hexes.find(h => h.key === key);
   const lastColoredHexDetails = lastColoredHexKey ? getHexAtKey(lastColoredHexKey) : null;
   const imageUrl = '/static/Map.png';
+
+  // Panning event handlers
+  const handlePanningStart = useCallback(() => {
+    setIsPanning(true);
+    setHoveredHexKey(null); // Clear hover state when panning starts
+  }, []);
+
+  const handlePanningStop = useCallback(() => {
+    setIsPanning(false);
+  }, []);
+
+  const handleTransformStart = useCallback(() => {
+    setIsTransforming(true);
+  }, []);
+
+  const handleTransformStop = useCallback(() => {
+    setIsTransforming(false);
+  }, []);
 
   return (
     <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
@@ -521,6 +615,67 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
               Erase
             </ToggleButton>
           </ToggleButtonGroup>
+        </Box>
+
+        {/* Background Toggle Section */}
+        <Box sx={{ flexShrink: 0 }}>
+          <Typography variant="h6" sx={{ 
+            mb: 1, 
+            fontSize: '12px', 
+            fontWeight: 'bold',
+            color: 'var(--neotech-text-secondary)',
+            fontFamily: "'Rajdhani', monospace",
+            textTransform: 'uppercase',
+            letterSpacing: '1px'
+          }}>
+            Display
+          </Typography>
+          <FormControlLabel
+            control={
+                             <Switch
+                 checked={showBackground}
+                 onChange={(e) => {
+                   setShowBackground(e.target.checked);
+                   if (onBackgroundToggle) {
+                     onBackgroundToggle(e.target.checked);
+                   }
+                 }}
+                sx={{
+                  '& .MuiSwitch-switchBase.Mui-checked': {
+                    color: 'var(--neotech-primary)',
+                    '&:hover': {
+                      backgroundColor: 'rgba(0, 255, 255, 0.1)',
+                    },
+                  },
+                  '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                    backgroundColor: 'var(--neotech-primary)',
+                  },
+                  '& .MuiSwitch-track': {
+                    backgroundColor: 'var(--neotech-border)',
+                  },
+                  '& .MuiSwitch-switchBase': {
+                    color: 'var(--neotech-text-secondary)',
+                  }
+                }}
+              />
+            }
+            label={
+              <Typography sx={{ 
+                fontSize: '11px',
+                color: 'var(--neotech-text-secondary)',
+                fontFamily: "'Rajdhani', monospace",
+                fontWeight: 600
+              }}>
+                Background Map
+              </Typography>
+            }
+            sx={{ 
+              ml: 0, 
+              '& .MuiFormControlLabel-label': { 
+                ml: 1 
+              }
+            }}
+          />
         </Box>
 
         {/* Color Section - Make it scrollable if needed */}
@@ -708,6 +863,10 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
             pinch={{ step: 5 }}
             doubleClick={{ disabled: true }}
             centerOnInit={true}
+            onPanningStart={handlePanningStart}
+            onPanningStop={handlePanningStop}
+            onZoomStart={handleTransformStart}
+            onZoomStop={handleTransformStop}
           >
             <TransformComponent
               wrapperStyle={{ width: '100%', height: '100%' }}
@@ -731,13 +890,8 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
                 onMouseUp={handleSvgMouseUp}
                 onMouseLeave={() => { 
                     setHoveredHexKey(null); 
-                    // Clear cursor for other users when mouse leaves the map
-                    if (socket && roomData) {
-                      socket.emit('cursor_update', {
-                        hex_key: null,
-                        mode: interactionMode
-                      });
-                    }
+                    // Clear cursor for other users when mouse leaves the map using throttled update
+                    throttledCursorUpdate(null, interactionMode);
                 }}
                 onContextMenu={(e) => e.preventDefault()}
               >
@@ -871,7 +1025,7 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
                   )}
 
                   {/* Render other users' cursors */}
-                  {Object.entries(otherUsersCursors).map(([userName, cursorData]) => {
+                  {!isPanning && !isTransforming && Object.entries(otherUsersCursors).map(([userName, cursorData]) => {
                     const hex = layout.hexes.find(h => h.key === cursorData.hex_key);
                     if (!hex) return null;
 

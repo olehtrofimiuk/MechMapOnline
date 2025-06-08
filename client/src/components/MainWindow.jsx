@@ -27,6 +27,7 @@ const MainWindow = () => {
         token: null,
         username: null
     });
+    const [showBackground, setShowBackground] = useState(true);
 
     // Get API base URL based on environment
     const getApiBaseUrl = () => {
@@ -259,6 +260,10 @@ const MainWindow = () => {
 
     const handleCloseActivityMessage = () => {
         setShowActivityMessage(false);
+    };
+
+    const handleBackgroundToggle = (show) => {
+        setShowBackground(show);
     };
 
     // Save Room Data to File
@@ -747,7 +752,7 @@ const MainWindow = () => {
             {/* Hex Grid */}
             <Box sx={{ 
                 flex: 1,
-                backgroundImage: 'url(/static/cockpit2.png)',
+                backgroundImage: showBackground ? 'url(/static/cockpit2.png)' : 'none',
                 backgroundSize: 'cover',
                 backgroundPosition: 'left 160px center',
                 backgroundRepeat: 'no-repeat'
@@ -758,6 +763,7 @@ const MainWindow = () => {
                     initialHexData={roomData.hexData}
                     initialLines={roomData.lines}
                     connectedUsers={connectedUsers}
+                    onBackgroundToggle={handleBackgroundToggle}
                 />
             </Box>
 
