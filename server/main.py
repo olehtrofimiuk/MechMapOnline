@@ -175,7 +175,9 @@ def save_rooms_to_file():
                 'units': room.get('units', []),  # Include units in save
                 'created_at': room['created_at'],
                 'last_activity': room['last_activity'],
-                'owner': room.get('owner')  # Add owner info
+                'owner': room.get('owner'),  # Add owner info
+                'has_password': room.get('has_password', False),  # Save password flag
+                'password_hash': room.get('password_hash')  # Save password hash
                 # Note: we don't save 'users' as they are session-specific
             }
         
@@ -1178,6 +1180,10 @@ async def register_user(user_data: UserRegister):
             'is_admin': is_first_user  # First user becomes admin
         }
         
+        # Generate token for automatic login
+        token = generate_token()
+        user_tokens[token] = username
+        
         # Save to file
         save_users_to_file()
         
@@ -1186,7 +1192,8 @@ async def register_user(user_data: UserRegister):
         return {
             "message": "User registered successfully" + (" as admin" if is_first_user else ""),
             "username": username,
-            "is_admin": is_first_user
+            "is_admin": is_first_user,
+            "token": token
         }
     
     except HTTPException:
@@ -1230,7 +1237,8 @@ async def login_user(user_data: UserLogin):
         "success": True,
         "message": "Login successful",
         "token": token,
-        "username": actual_username
+        "username": actual_username,
+        "is_admin": user.get('is_admin', False)
     }
 
 @app.post("/api/logout")
@@ -1524,3 +1532,78 @@ async def handle_unit_delete(sid, data):
     
     # Notify admin rooms that have this room enabled
     await notify_admin_rooms_of_room_update(room_id)
+
+@sio.on('admin_delete_room')
+async def handle_admin_delete_room(sid, data):
+    """Delete a room (admin only - can delete any room)"""
+    user_data = user_sessions.get(sid, {})
+    
+    # Check if user is authenticated and has admin privileges
+    if not user_data.get('is_authenticated') or not is_admin_user(user_data['username']):
+        await sio.emit('room_error', {
+            'message': 'Admin privileges required to delete rooms'
+        }, room=sid)
+        return
+    
+    target_room_id = data.get('room_id', '').upper()
+    if not target_room_id:
+        await sio.emit('room_error', {
+            'message': 'Room ID is required'
+        }, room=sid)
+        return
+    
+    # Check if room exists
+    if target_room_id not in rooms:
+        await sio.emit('room_error', {
+            'message': 'Room not found'
+        }, room=sid)
+        return
+    
+    room_name = rooms[target_room_id]['name']
+    
+    # Notify all users in the room that it's being deleted
+    if len(rooms[target_room_id]['users']) > 0:
+        await sio.emit('room_deleted', {
+            'message': f'This room has been deleted by an administrator',
+            'force_leave': True
+        }, room=target_room_id)
+        
+        # Remove all users from the room
+        for user_sid in list(rooms[target_room_id]['users'].keys()):
+            if user_sid in user_sessions:
+                user_sessions[user_sid]['room_id'] = None
+                user_sessions[user_sid]['is_admin_room'] = False
+            await sio.leave_room(user_sid, target_room_id)
+    
+    # Delete the room
+    del rooms[target_room_id]
+    
+    # Update all admin rooms that might have this room in their toggles
+    for admin_room_id, admin_room_data in admin_rooms.items():
+        if target_room_id in admin_room_data['room_toggles']:
+            del admin_room_data['room_toggles'][target_room_id]
+            
+            # Notify admin room users about the deletion
+            aggregated_data = get_aggregated_room_data(admin_room_id)
+            await sio.emit('admin_room_data_updated', {
+                'hex_data': aggregated_data['hex_data'],
+                'lines': aggregated_data['lines'],
+                'units': aggregated_data['units'],
+                'room_toggles': admin_room_data['room_toggles'],
+                'deleted_room_name': room_name
+            }, room=admin_room_id)
+    
+    print(f'Room {target_room_id} ({room_name}) deleted by admin {user_data["username"]}')
+    
+    # Confirm deletion to the admin
+    await sio.emit('room_deleted', {
+        'message': f'Room "{room_name}" ({target_room_id}) has been deleted successfully',
+        'deleted_room_id': target_room_id,
+        'admin_action': True
+    }, room=sid)
+    
+    # Refresh room list for all users by emitting a broadcast signal
+    await sio.emit('room_list_refresh', {
+        'deleted_room_id': target_room_id,
+        'deleted_room_name': room_name
+    }, broadcast=True)

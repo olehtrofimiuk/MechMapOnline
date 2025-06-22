@@ -122,7 +122,8 @@ const AuthManager = ({ onAuthSuccess }) => {
         onAuthSuccess({
           token: data.token,
           username: data.username,
-          isAuthenticated: true
+          isAuthenticated: true,
+          isAdmin: data.is_admin || false
         });
       } else {
         setError(data.detail || 'Authentication failed');

@@ -310,6 +310,23 @@ const MainWindow = () => {
                     });
                 }
             });
+
+            // Listen for room deletion (when admin deletes the room you're in)
+            socket.current.on('room_deleted', (data) => {
+                if (data.force_leave) {
+                    console.log('Room was deleted by admin, leaving...');
+                    setRoomData(null);
+                    setConnectedUsers([]);
+                    setIsLeavingRoom(false);
+                    setAdminData({
+                        availableRooms: [],
+                        roomToggles: {},
+                        isAdminRoom: false
+                    });
+                    setUserActivity(data.message);
+                    setShowActivityMessage(true);
+                }
+            });
         }
     }, []);
 

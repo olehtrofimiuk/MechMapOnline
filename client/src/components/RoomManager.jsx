@@ -27,6 +27,8 @@ import LoginIcon from '@mui/icons-material/Login';
 import LogoutIcon from '@mui/icons-material/Logout';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import LockIcon from '@mui/icons-material/Lock';
+import DeleteIcon from '@mui/icons-material/Delete';
+import IconButton from '@mui/material/IconButton';
 
 const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLogout }) => {
   const [userName, setUserName] = useState('');
@@ -37,6 +39,8 @@ const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLog
   const [joinPassword, setJoinPassword] = useState('');
   const [selectedRoomForJoin, setSelectedRoomForJoin] = useState(null);
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [selectedRoomForDelete, setSelectedRoomForDelete] = useState(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -161,6 +165,9 @@ const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLog
       setIsLoading(false);
       setError(data.message);
       setSuccess('');
+      // Close any open dialogs on error
+      setShowDeleteDialog(false);
+      setSelectedRoomForDelete(null);
     });
 
     // Listen for available rooms list
@@ -171,6 +178,32 @@ const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLog
     // Listen for admin rooms list
     socket.on('admin_rooms_list', (data) => {
       setAdminRooms(data.admin_rooms);
+    });
+
+    // Listen for room deletion events
+    socket.on('room_deleted', (data) => {
+      setIsLoading(false); // Reset loading state
+      if (data.admin_action) {
+        setSuccess(data.message);
+        setError('');
+        // Refresh room list
+        socket.emit('get_rooms');
+        if (authState.isAdmin) {
+          socket.emit('get_admin_rooms');
+        }
+      } else if (data.force_leave) {
+        setError(data.message);
+        setSuccess('');
+      }
+    });
+
+    // Listen for room list refresh signals
+    socket.on('room_list_refresh', (data) => {
+      // Refresh room lists when any room is deleted
+      socket.emit('get_rooms');
+      if (authState.isAdmin) {
+        socket.emit('get_admin_rooms');
+      }
     });
 
     // Cleanup listeners
@@ -184,8 +217,18 @@ const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLog
       socket.off('admin_room_created');
       socket.off('admin_room_joined');
       socket.off('admin_rooms_list');
+      socket.off('room_deleted');
+      socket.off('room_list_refresh');
     };
-  }, [socket, onRoomJoined, onAdminRoomJoined]);
+  }, [socket, onRoomJoined, onAdminRoomJoined, authState.isAdmin]);
+
+  // Watch for admin status changes and fetch admin rooms
+  useEffect(() => {
+    if (socket && socket.connected && authState.isAdmin) {
+      console.log('Admin status detected, fetching admin rooms...');
+      socket.emit('get_admin_rooms');
+    }
+  }, [socket, authState.isAdmin]);
 
   const handleCreateRoom = () => {
     if (!socket || !isConnected) {
@@ -280,6 +323,27 @@ const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLog
       setShowPasswordDialog(false);
       setSelectedRoomForJoin(null);
       setJoinPassword('');
+    }
+  };
+
+  const handleDeleteRoom = (roomId, roomName, event) => {
+    event.stopPropagation(); // Prevent room click
+    setSelectedRoomForDelete({ id: roomId, name: roomName });
+    setShowDeleteDialog(true);
+  };
+
+  const handleDeleteConfirm = () => {
+    if (selectedRoomForDelete && socket && isConnected) {
+      setIsLoading(true);
+      setError('');
+      setSuccess('');
+      
+      socket.emit('admin_delete_room', {
+        room_id: selectedRoomForDelete.id
+      });
+      
+      setShowDeleteDialog(false);
+      setSelectedRoomForDelete(null);
     }
   };
 
@@ -577,31 +641,46 @@ const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLog
                     </ListItemIcon>
                     <ListItemText 
                       primary={
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Typography variant="subtitle1" sx={{ fontWeight: 'bold', color: 'secondary.main' }}>
-                            {room.name}
-                          </Typography>
-                          <Chip 
-                            label={room.room_id} 
-                            size="small" 
-                            variant="outlined"
-                            color="secondary"
-                            sx={{ fontSize: '10px' }}
-                          />
-                          {room.is_active && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'space-between' }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 'bold', color: 'secondary.main' }}>
+                              {room.name}
+                            </Typography>
                             <Chip 
-                              label="ACTIVE" 
+                              label={room.room_id} 
                               size="small" 
-                              color="success"
+                              variant="outlined"
+                              color="secondary"
+                              sx={{ fontSize: '10px' }}
+                            />
+                            {room.is_active && (
+                              <Chip 
+                                label="ACTIVE" 
+                                size="small" 
+                                color="success"
+                                sx={{ fontSize: '9px' }}
+                              />
+                            )}
+                            <Chip 
+                              label="ADMIN" 
+                              size="small" 
+                              color="secondary"
                               sx={{ fontSize: '9px' }}
                             />
-                          )}
-                          <Chip 
-                            label="ADMIN" 
-                            size="small" 
-                            color="secondary"
-                            sx={{ fontSize: '9px' }}
-                          />
+                          </Box>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={(e) => handleDeleteRoom(room.room_id, room.name, e)}
+                            sx={{ 
+                              ml: 1,
+                              '&:hover': {
+                                backgroundColor: 'rgba(244, 67, 54, 0.1)'
+                              }
+                            }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
                         </Box>
                       }
                       secondary={
@@ -666,41 +745,58 @@ const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLog
                     </ListItemIcon>
                     <ListItemText 
                       primary={
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
-                            {room.name}
-                          </Typography>
-                          <Chip 
-                            label={room.room_id} 
-                            size="small" 
-                            variant="outlined"
-                            sx={{ fontSize: '10px' }}
-                          />
-                          {room.is_active && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'space-between' }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
+                              {room.name}
+                            </Typography>
                             <Chip 
-                              label="ACTIVE" 
+                              label={room.room_id} 
                               size="small" 
-                              color="success"
-                              sx={{ fontSize: '9px' }}
-                            />
-                          )}
-                          {room.has_password && (
-                            <Chip 
-                              label="PRIVATE" 
-                              size="small" 
-                              color="warning"
-                              icon={<LockIcon sx={{ fontSize: '10px !important' }} />}
-                              sx={{ fontSize: '9px' }}
-                            />
-                          )}
-                          {room.owner !== 'Anonymous' && (
-                            <Chip 
-                              label={`Owner: ${room.owner}`} 
-                              size="small" 
-                              color="primary"
                               variant="outlined"
-                              sx={{ fontSize: '9px' }}
+                              sx={{ fontSize: '10px' }}
                             />
+                            {room.is_active && (
+                              <Chip 
+                                label="ACTIVE" 
+                                size="small" 
+                                color="success"
+                                sx={{ fontSize: '9px' }}
+                              />
+                            )}
+                            {room.has_password && (
+                              <Chip 
+                                label="PRIVATE" 
+                                size="small" 
+                                color="warning"
+                                icon={<LockIcon sx={{ fontSize: '10px !important' }} />}
+                                sx={{ fontSize: '9px' }}
+                              />
+                            )}
+                            {room.owner !== 'Anonymous' && (
+                              <Chip 
+                                label={`Owner: ${room.owner}`} 
+                                size="small" 
+                                color="primary"
+                                variant="outlined"
+                                sx={{ fontSize: '9px' }}
+                              />
+                            )}
+                          </Box>
+                          {authState.isAdmin && (
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={(e) => handleDeleteRoom(room.room_id, room.name, e)}
+                              sx={{ 
+                                ml: 1,
+                                '&:hover': {
+                                  backgroundColor: 'rgba(244, 67, 54, 0.1)'
+                                }
+                              }}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
                           )}
                         </Box>
                       }
@@ -782,6 +878,60 @@ const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLog
             disabled={!joinPassword.trim()}
           >
             Join Room
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog 
+        open={showDeleteDialog} 
+        onClose={() => setShowDeleteDialog(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'error.main' }}>
+            <DeleteIcon />
+            Delete Room
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" sx={{ mb: 2 }}>
+            Are you sure you want to delete this room?
+          </Typography>
+          {selectedRoomForDelete && (
+            <Box sx={{ 
+              p: 2, 
+              backgroundColor: 'error.light', 
+              borderRadius: 1,
+              border: '1px solid',
+              borderColor: 'error.main'
+            }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: 'error.contrastText' }}>
+                {selectedRoomForDelete.name}
+              </Typography>
+              <Typography variant="caption" sx={{ color: 'error.contrastText', opacity: 0.8 }}>
+                ID: {selectedRoomForDelete.id}
+              </Typography>
+            </Box>
+          )}
+          <Typography variant="body2" sx={{ mt: 2, color: 'text.secondary' }}>
+            <strong>Warning:</strong> This action cannot be undone. All data in this room will be permanently lost, 
+            and any users currently in the room will be automatically removed.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowDeleteDialog(false)}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleDeleteConfirm} 
+            variant="contained"
+            color="error"
+            disabled={isLoading}
+            startIcon={isLoading ? <CircularProgress size={16} /> : <DeleteIcon />}
+          >
+            {isLoading ? 'Deleting...' : 'Delete Room'}
           </Button>
         </DialogActions>
       </Dialog>
