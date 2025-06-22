@@ -6,13 +6,38 @@ import {
     FormControlLabel, 
     Paper,
     Chip,
-    Tooltip
+    Tooltip,
+    TextField,
+    Button,
+    Divider
 } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
+import CasinoIcon from '@mui/icons-material/Casino';
 
 const AdminPanel = ({ roomData, availableRooms, roomToggles, socket }) => {
     console.log('AdminPanel received:', { availableRooms, roomToggles });
+
+    // Dice Panel Toggle
+    const [showDicePanel, setShowDicePanel] = React.useState(false);
+
+    // Dice Roller 1 - Attack Rolls (Orange theme)
+    const [rollCount1, setRollCount1] = React.useState(1);
+    const [modifier1, setModifier1] = React.useState(0);
+    const [rollResults1, setRollResults1] = React.useState([]);
+    const [lastRollTime1, setLastRollTime1] = React.useState(null);
+
+    // Dice Roller 2 - Defense Rolls (Blue theme)
+    const [rollCount2, setRollCount2] = React.useState(1);
+    const [modifier2, setModifier2] = React.useState(0);
+    const [rollResults2, setRollResults2] = React.useState([]);
+    const [lastRollTime2, setLastRollTime2] = React.useState(null);
+
+    // Dice Roller 3 - Skill Rolls (Green theme)
+    const [rollCount3, setRollCount3] = React.useState(1);
+    const [modifier3, setModifier3] = React.useState(0);
+    const [rollResults3, setRollResults3] = React.useState([]);
+    const [lastRollTime3, setLastRollTime3] = React.useState(null);
 
     const handleToggleRoom = (roomId) => {
         if (socket && roomData) {
@@ -22,6 +47,44 @@ const AdminPanel = ({ roomData, availableRooms, roomToggles, socket }) => {
                 room_id: roomId,
                 enabled: !currentState
             });
+        }
+    };
+
+    const rollDice = (rollerNumber) => {
+        const rolls = [];
+        let totalSum = 0;
+        
+        const rollCount = rollerNumber === 1 ? rollCount1 : rollerNumber === 2 ? rollCount2 : rollCount3;
+        const modifier = rollerNumber === 1 ? modifier1 : rollerNumber === 2 ? modifier2 : modifier3;
+        
+        for (let i = 0; i < rollCount; i++) {
+            const dice1 = Math.floor(Math.random() * 6) + 1;
+            const dice2 = Math.floor(Math.random() * 6) + 1;
+            const rollSum = dice1 + dice2;
+            const modifiedSum = rollSum + modifier;
+            
+            rolls.push({
+                id: i + 1,
+                dice1,
+                dice2,
+                rollSum,
+                modifiedSum
+            });
+            
+            totalSum += modifiedSum;
+        }
+        
+        const currentTime = new Date().toLocaleTimeString();
+        
+        if (rollerNumber === 1) {
+            setRollResults1(rolls);
+            setLastRollTime1(currentTime);
+        } else if (rollerNumber === 2) {
+            setRollResults2(rolls);
+            setLastRollTime2(currentTime);
+        } else {
+            setRollResults3(rolls);
+            setLastRollTime3(currentTime);
         }
     };
 
@@ -40,7 +103,14 @@ const AdminPanel = ({ roomData, availableRooms, roomToggles, socket }) => {
         return Object.values(roomToggles).filter(toggle => toggle.enabled).length;
     };
 
+    const getTotalSum = () => {
+        return rollResults1.reduce((sum, roll) => sum + roll.modifiedSum, 0) +
+               rollResults2.reduce((sum, roll) => sum + roll.modifiedSum, 0) +
+               rollResults3.reduce((sum, roll) => sum + roll.modifiedSum, 0);
+    };
+
     return (
+        <>
         <Paper sx={{
             position: 'fixed',
             top: 100,
@@ -68,6 +138,28 @@ const AdminPanel = ({ roomData, availableRooms, roomToggles, socket }) => {
                 }}>
                     🛡️ Admin Control
                 </Typography>
+            </Box>
+
+            {/* Dice Panel Toggle */}
+            <Box sx={{ mb: 3 }}>
+                <Button
+                    onClick={() => setShowDicePanel(!showDicePanel)}
+                    variant="outlined"
+                    fullWidth
+                    startIcon={<CasinoIcon />}
+                    sx={{
+                        borderColor: 'var(--neotech-primary)',
+                        color: 'var(--neotech-primary)',
+                        fontFamily: "'Rajdhani', monospace",
+                        fontWeight: 600,
+                        '&:hover': {
+                            borderColor: 'var(--neotech-primary)',
+                            backgroundColor: 'rgba(0, 255, 255, 0.1)',
+                        }
+                    }}
+                >
+                    {showDicePanel ? 'Hide Dice Panel' : 'Show Dice Panel'}
+                </Button>
             </Box>
 
             {/* Statistics */}
@@ -264,6 +356,485 @@ const AdminPanel = ({ roomData, availableRooms, roomToggles, socket }) => {
                 </Typography>
             </Box>
         </Paper>
+
+        {/* Separate Dice Panel */}
+        {showDicePanel && (
+            <Paper sx={{
+                position: 'fixed',
+                top: 20,
+                left: 20,
+                right: 380,
+                height: 'auto',
+                maxHeight: '90vh',
+                overflow: 'auto',
+                background: 'linear-gradient(135deg, rgba(0, 17, 34, 0.95), rgba(0, 8, 17, 0.98))',
+                border: '2px solid var(--neotech-primary)',
+                borderRadius: 2,
+                boxShadow: '0 0 20px rgba(0, 255, 255, 0.4), inset 0 0 20px rgba(0, 0, 0, 0.5)',
+                backdropFilter: 'blur(10px)',
+                p: 3,
+                zIndex: 999
+            }}>
+                {/* Dice Panel Header */}
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+                    <Typography variant="h6" sx={{
+                        color: 'var(--neotech-primary)',
+                        fontFamily: "'Orbitron', monospace",
+                        fontWeight: 'bold',
+                        textShadow: 'var(--neotech-glow-small)',
+                        textTransform: 'uppercase',
+                        letterSpacing: '1px'
+                    }}>
+                        🎲 Dice Roller Panel
+                    </Typography>
+                    <Button
+                        onClick={() => setShowDicePanel(false)}
+                        size="small"
+                        sx={{
+                            color: 'var(--neotech-text-secondary)',
+                            minWidth: 'auto',
+                            '&:hover': {
+                                color: 'var(--neotech-primary)',
+                                backgroundColor: 'rgba(0, 255, 255, 0.1)'
+                            }
+                        }}
+                    >
+                        ✕
+                    </Button>
+                </Box>
+
+                {/* Horizontal Dice Layout */}
+                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                    
+                    {/* Attack Rolls - Orange */}
+                    <Box sx={{ 
+                        flex: '1 1 300px',
+                        minWidth: '300px',
+                        p: 2, 
+                        background: 'rgba(255, 170, 0, 0.05)',
+                        border: '1px solid rgba(255, 170, 0, 0.2)',
+                        borderRadius: 1
+                    }}>
+                        <Typography variant="subtitle2" sx={{ 
+                            color: 'var(--neotech-warning)', 
+                            mb: 2,
+                            fontFamily: "'Rajdhani', monospace",
+                            fontWeight: 600,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 1
+                        }}>
+                            <CasinoIcon fontSize="small" />
+                            Attack Rolls (2d6)
+                        </Typography>
+                        
+                        <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                            <TextField
+                                label="Rolls"
+                                type="number"
+                                value={rollCount1}
+                                onChange={(e) => setRollCount1(Math.max(1, parseInt(e.target.value) || 1))}
+                                size="small"
+                                inputProps={{ min: 1, max: 20 }}
+                                sx={{
+                                    flex: 1,
+                                    '& .MuiOutlinedInput-root': {
+                                        '& fieldset': { borderColor: 'var(--neotech-border)' },
+                                        '&:hover fieldset': { borderColor: 'var(--neotech-warning)' },
+                                        '&.Mui-focused fieldset': { borderColor: 'var(--neotech-warning)' },
+                                    },
+                                    '& .MuiInputLabel-root': { color: 'var(--neotech-text-secondary)' },
+                                    '& .MuiInputBase-input': { color: 'var(--neotech-text)' },
+                                }}
+                            />
+                            <TextField
+                                label="Modifier"
+                                type="number"
+                                value={modifier1}
+                                onChange={(e) => setModifier1(parseInt(e.target.value) || 0)}
+                                size="small"
+                                inputProps={{ min: -20, max: 20 }}
+                                sx={{
+                                    flex: 1,
+                                    '& .MuiOutlinedInput-root': {
+                                        '& fieldset': { borderColor: 'var(--neotech-border)' },
+                                        '&:hover fieldset': { borderColor: 'var(--neotech-warning)' },
+                                        '&.Mui-focused fieldset': { borderColor: 'var(--neotech-warning)' },
+                                    },
+                                    '& .MuiInputLabel-root': { color: 'var(--neotech-text-secondary)' },
+                                    '& .MuiInputBase-input': { color: 'var(--neotech-text)' },
+                                }}
+                            />
+                        </Box>
+                        
+                        <Button
+                            onClick={() => rollDice(1)}
+                            variant="outlined"
+                            fullWidth
+                            size="small"
+                            startIcon={<CasinoIcon />}
+                            sx={{
+                                borderColor: 'var(--neotech-warning)',
+                                color: 'var(--neotech-warning)',
+                                fontFamily: "'Rajdhani', monospace",
+                                fontWeight: 600,
+                                mb: 2,
+                                '&:hover': {
+                                    borderColor: 'var(--neotech-warning)',
+                                    backgroundColor: 'rgba(255, 170, 0, 0.1)',
+                                }
+                            }}
+                        >
+                            Roll {rollCount1} × 2d6 {modifier1 !== 0 && `${modifier1 >= 0 ? '+' : ''}${modifier1}`}
+                        </Button>
+
+                        {/* Results */}
+                        {rollResults1.length > 0 && (
+                            <Box>
+                                <Typography variant="caption" sx={{
+                                    color: 'var(--neotech-text-secondary)',
+                                    fontFamily: "'Rajdhani', monospace",
+                                    display: 'block',
+                                    mb: 1
+                                }}>
+                                    Results ({lastRollTime1}):
+                                </Typography>
+                                
+                                <Box sx={{ 
+                                    maxHeight: '100px', 
+                                    overflow: 'auto',
+                                    border: '1px solid rgba(255, 170, 0, 0.3)',
+                                    borderRadius: 1,
+                                    p: 1,
+                                    mb: 1
+                                }}>
+                                    {rollResults1.map((roll) => (
+                                        <Typography key={roll.id} variant="caption" sx={{ 
+                                            color: 'var(--neotech-text)',
+                                            fontFamily: "'Rajdhani', monospace",
+                                            display: 'block',
+                                            fontSize: '11px'
+                                        }}>
+                                            Roll {roll.id}: {roll.dice1} + {roll.dice2} = {roll.rollSum}
+                                            {modifier1 !== 0 && ` ${modifier1 >= 0 ? '+' : ''}${modifier1} = ${roll.modifiedSum}`}
+                                        </Typography>
+                                    ))}
+                                </Box>
+                                
+                                <Box sx={{ 
+                                    display: 'flex', 
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    p: 1,
+                                    background: 'rgba(255, 170, 0, 0.1)',
+                                    borderRadius: 1
+                                }}>
+                                    <Typography variant="caption" sx={{
+                                        color: 'var(--neotech-warning)',
+                                        fontFamily: "'Rajdhani', monospace",
+                                        fontWeight: 600
+                                    }}>
+                                        Total АХУЙ 240:
+                                    </Typography>
+                                    <Typography variant="body1" sx={{
+                                        color: 'var(--neotech-warning)',
+                                        fontFamily: "'Orbitron', monospace",
+                                        fontWeight: 'bold'
+                                    }}>
+                                        {rollResults1.reduce((sum, roll) => sum + roll.modifiedSum, 0)}
+                                    </Typography>
+                                </Box>
+                            </Box>
+                        )}
+                    </Box>
+
+                    {/* Defense Rolls - Blue */}
+                    <Box sx={{ 
+                        flex: '1 1 300px',
+                        minWidth: '300px',
+                        p: 2, 
+                        background: 'rgba(0, 123, 255, 0.05)',
+                        border: '1px solid rgba(0, 123, 255, 0.2)',
+                        borderRadius: 1
+                    }}>
+                        <Typography variant="subtitle2" sx={{ 
+                            color: '#007bff', 
+                            mb: 2,
+                            fontFamily: "'Rajdhani', monospace",
+                            fontWeight: 600,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 1
+                        }}>
+                            <CasinoIcon fontSize="small" />
+                            Defense Rolls (2d6)
+                        </Typography>
+                        
+                        <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                            <TextField
+                                label="Rolls"
+                                type="number"
+                                value={rollCount2}
+                                onChange={(e) => setRollCount2(Math.max(1, parseInt(e.target.value) || 1))}
+                                size="small"
+                                inputProps={{ min: 1, max: 20 }}
+                                sx={{
+                                    flex: 1,
+                                    '& .MuiOutlinedInput-root': {
+                                        '& fieldset': { borderColor: 'var(--neotech-border)' },
+                                        '&:hover fieldset': { borderColor: '#007bff' },
+                                        '&.Mui-focused fieldset': { borderColor: '#007bff' },
+                                    },
+                                    '& .MuiInputLabel-root': { color: 'var(--neotech-text-secondary)' },
+                                    '& .MuiInputBase-input': { color: 'var(--neotech-text)' },
+                                }}
+                            />
+                            <TextField
+                                label="Modifier"
+                                type="number"
+                                value={modifier2}
+                                onChange={(e) => setModifier2(parseInt(e.target.value) || 0)}
+                                size="small"
+                                inputProps={{ min: -20, max: 20 }}
+                                sx={{
+                                    flex: 1,
+                                    '& .MuiOutlinedInput-root': {
+                                        '& fieldset': { borderColor: 'var(--neotech-border)' },
+                                        '&:hover fieldset': { borderColor: '#007bff' },
+                                        '&.Mui-focused fieldset': { borderColor: '#007bff' },
+                                    },
+                                    '& .MuiInputLabel-root': { color: 'var(--neotech-text-secondary)' },
+                                    '& .MuiInputBase-input': { color: 'var(--neotech-text)' },
+                                }}
+                            />
+                        </Box>
+                        
+                        <Button
+                            onClick={() => rollDice(2)}
+                            variant="outlined"
+                            fullWidth
+                            size="small"
+                            startIcon={<CasinoIcon />}
+                            sx={{
+                                borderColor: '#007bff',
+                                color: '#007bff',
+                                fontFamily: "'Rajdhani', monospace",
+                                fontWeight: 600,
+                                mb: 2,
+                                '&:hover': {
+                                    borderColor: '#007bff',
+                                    backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                                }
+                            }}
+                        >
+                            Roll {rollCount2} × 2d6 {modifier2 !== 0 && `${modifier2 >= 0 ? '+' : ''}${modifier2}`}
+                        </Button>
+
+                        {/* Results */}
+                        {rollResults2.length > 0 && (
+                            <Box>
+                                <Typography variant="caption" sx={{
+                                    color: 'var(--neotech-text-secondary)',
+                                    fontFamily: "'Rajdhani', monospace",
+                                    display: 'block',
+                                    mb: 1
+                                }}>
+                                    Results ({lastRollTime2}):
+                                </Typography>
+                                
+                                <Box sx={{ 
+                                    maxHeight: '100px', 
+                                    overflow: 'auto',
+                                    border: '1px solid rgba(0, 123, 255, 0.3)',
+                                    borderRadius: 1,
+                                    p: 1,
+                                    mb: 1
+                                }}>
+                                    {rollResults2.map((roll) => (
+                                        <Typography key={roll.id} variant="caption" sx={{ 
+                                            color: 'var(--neotech-text)',
+                                            fontFamily: "'Rajdhani', monospace",
+                                            display: 'block',
+                                            fontSize: '11px'
+                                        }}>
+                                            Roll {roll.id}: {roll.dice1} + {roll.dice2} = {roll.rollSum}
+                                            {modifier2 !== 0 && ` ${modifier2 >= 0 ? '+' : ''}${modifier2} = ${roll.modifiedSum}`}
+                                        </Typography>
+                                    ))}
+                                </Box>
+                                
+                                <Box sx={{ 
+                                    display: 'flex', 
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    p: 1,
+                                    background: 'rgba(0, 123, 255, 0.1)',
+                                    borderRadius: 1
+                                }}>
+                                    <Typography variant="caption" sx={{
+                                        color: '#007bff',
+                                        fontFamily: "'Rajdhani', monospace",
+                                        fontWeight: 600
+                                    }}>
+                                        Total:
+                                    </Typography>
+                                    <Typography variant="body1" sx={{
+                                        color: '#007bff',
+                                        fontFamily: "'Orbitron', monospace",
+                                        fontWeight: 'bold'
+                                    }}>
+                                        {rollResults2.reduce((sum, roll) => sum + roll.modifiedSum, 0)}
+                                    </Typography>
+                                </Box>
+                            </Box>
+                        )}
+                    </Box>
+
+                    {/* Skill Rolls - Green */}
+                    <Box sx={{ 
+                        flex: '1 1 300px',
+                        minWidth: '300px',
+                        p: 2, 
+                        background: 'rgba(40, 167, 69, 0.05)',
+                        border: '1px solid rgba(40, 167, 69, 0.2)',
+                        borderRadius: 1
+                    }}>
+                        <Typography variant="subtitle2" sx={{ 
+                            color: '#28a745', 
+                            mb: 2,
+                            fontFamily: "'Rajdhani', monospace",
+                            fontWeight: 600,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 1
+                        }}>
+                            <CasinoIcon fontSize="small" />
+                            Skill Rolls (2d6)
+                        </Typography>
+                        
+                        <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                            <TextField
+                                label="Rolls"
+                                type="number"
+                                value={rollCount3}
+                                onChange={(e) => setRollCount3(Math.max(1, parseInt(e.target.value) || 1))}
+                                size="small"
+                                inputProps={{ min: 1, max: 20 }}
+                                sx={{
+                                    flex: 1,
+                                    '& .MuiOutlinedInput-root': {
+                                        '& fieldset': { borderColor: 'var(--neotech-border)' },
+                                        '&:hover fieldset': { borderColor: '#28a745' },
+                                        '&.Mui-focused fieldset': { borderColor: '#28a745' },
+                                    },
+                                    '& .MuiInputLabel-root': { color: 'var(--neotech-text-secondary)' },
+                                    '& .MuiInputBase-input': { color: 'var(--neotech-text)' },
+                                }}
+                            />
+                            <TextField
+                                label="Modifier"
+                                type="number"
+                                value={modifier3}
+                                onChange={(e) => setModifier3(parseInt(e.target.value) || 0)}
+                                size="small"
+                                inputProps={{ min: -20, max: 20 }}
+                                sx={{
+                                    flex: 1,
+                                    '& .MuiOutlinedInput-root': {
+                                        '& fieldset': { borderColor: 'var(--neotech-border)' },
+                                        '&:hover fieldset': { borderColor: '#28a745' },
+                                        '&.Mui-focused fieldset': { borderColor: '#28a745' },
+                                    },
+                                    '& .MuiInputLabel-root': { color: 'var(--neotech-text-secondary)' },
+                                    '& .MuiInputBase-input': { color: 'var(--neotech-text)' },
+                                }}
+                            />
+                        </Box>
+                        
+                        <Button
+                            onClick={() => rollDice(3)}
+                            variant="outlined"
+                            fullWidth
+                            size="small"
+                            startIcon={<CasinoIcon />}
+                            sx={{
+                                borderColor: '#28a745',
+                                color: '#28a745',
+                                fontFamily: "'Rajdhani', monospace",
+                                fontWeight: 600,
+                                mb: 2,
+                                '&:hover': {
+                                    borderColor: '#28a745',
+                                    backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                                }
+                            }}
+                        >
+                            Roll {rollCount3} × 2d6 {modifier3 !== 0 && `${modifier3 >= 0 ? '+' : ''}${modifier3}`}
+                        </Button>
+
+                        {/* Results */}
+                        {rollResults3.length > 0 && (
+                            <Box>
+                                <Typography variant="caption" sx={{
+                                    color: 'var(--neotech-text-secondary)',
+                                    fontFamily: "'Rajdhani', monospace",
+                                    display: 'block',
+                                    mb: 1
+                                }}>
+                                    Results ({lastRollTime3}):
+                                </Typography>
+                                
+                                <Box sx={{ 
+                                    maxHeight: '100px', 
+                                    overflow: 'auto',
+                                    border: '1px solid rgba(40, 167, 69, 0.3)',
+                                    borderRadius: 1,
+                                    p: 1,
+                                    mb: 1
+                                }}>
+                                    {rollResults3.map((roll) => (
+                                        <Typography key={roll.id} variant="caption" sx={{ 
+                                            color: 'var(--neotech-text)',
+                                            fontFamily: "'Rajdhani', monospace",
+                                            display: 'block',
+                                            fontSize: '11px'
+                                        }}>
+                                            Roll {roll.id}: {roll.dice1} + {roll.dice2} = {roll.rollSum}
+                                            {modifier3 !== 0 && ` ${modifier3 >= 0 ? '+' : ''}${modifier3} = ${roll.modifiedSum}`}
+                                        </Typography>
+                                    ))}
+                                </Box>
+                                
+                                <Box sx={{ 
+                                    display: 'flex', 
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    p: 1,
+                                    background: 'rgba(40, 167, 69, 0.1)',
+                                    borderRadius: 1
+                                }}>
+                                    <Typography variant="caption" sx={{
+                                        color: '#28a745',
+                                        fontFamily: "'Rajdhani', monospace",
+                                        fontWeight: 600
+                                    }}>
+                                        Total:
+                                    </Typography>
+                                    <Typography variant="body1" sx={{
+                                        color: '#28a745',
+                                        fontFamily: "'Orbitron', monospace",
+                                        fontWeight: 'bold'
+                                    }}>
+                                        {rollResults3.reduce((sum, roll) => sum + roll.modifiedSum, 0)}
+                                    </Typography>
+                                </Box>
+                            </Box>
+                        )}
+                    </Box>
+                </Box>
+            </Paper>
+        )}
+        </>
     );
 };
 
