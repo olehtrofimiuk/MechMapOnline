@@ -9,7 +9,8 @@ const Unit = ({
   onMouseLeave,
   isDragging, 
   isReadOnly = false,
-  isHovered = false 
+  isHovered = false,
+  isGrouped = false
 }) => {
   const unitSize = 140; // Size of the unit marker (diameter of circle)
   const fontSize = 48; // Font size for unit name
@@ -138,6 +139,45 @@ const Unit = ({
           strokeDasharray="4 2"
           style={{ pointerEvents: 'none' }}
         />
+      )}
+      
+      {/* Grouped indicator */}
+      {isGrouped && (
+        <g>
+          {/* Grouped unit border */}
+          <circle
+            cx={centerX}
+            cy={centerY}
+            r={unitSize / 2 + 8}
+            fill="none"
+            stroke="rgba(0, 255, 255, 0.9)"
+            strokeWidth={3}
+            strokeDasharray="8 4"
+            style={{ pointerEvents: 'none' }}
+          />
+          
+          {/* Group indicator symbol */}
+          <circle
+            cx={centerX - unitSize / 2 + 15}
+            cy={centerY - unitSize / 2 + 15}
+            r={12}
+            fill="rgba(0, 255, 255, 0.9)"
+            stroke="#000"
+            strokeWidth={1}
+            style={{ pointerEvents: 'none' }}
+          />
+          <text
+            x={centerX - unitSize / 2 + 15}
+            y={centerY - unitSize / 2 + 19}
+            textAnchor="middle"
+            fontSize={14}
+            fill="#000"
+            fontWeight="bold"
+            style={{ pointerEvents: 'none' }}
+          >
+            G
+          </text>
+        </g>
       )}
     </g>
   );

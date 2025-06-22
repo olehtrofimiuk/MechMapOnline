@@ -169,6 +169,9 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
   const [draggedUnitPosition, setDraggedUnitPosition] = useState(null); // Track current visual position during drag
   const [hoveredUnitId, setHoveredUnitId] = useState(null);
 
+  // Unit Grouping State
+  const [groupedUnits, setGroupedUnits] = useState(new Set()); // Set of unit IDs that are grouped
+
   // Debug logging for dragging state changes
   useEffect(() => {
     console.log('isDraggingUnit changed to:', isDraggingUnit, 'draggedUnit:', draggedUnit?.name || 'none', 'position:', draggedUnitPosition);
@@ -468,6 +471,24 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
     }
   }, [socket, roomData]);
 
+  // Function to clear unit groups on any action
+  const clearUnitGroups = useCallback(() => {
+    setGroupedUnits(new Set());
+  }, []);
+
+  // Function to toggle unit in group
+  const toggleUnitInGroup = useCallback((unitId) => {
+    setGroupedUnits(prevGroups => {
+      const newGroups = new Set(prevGroups);
+      if (newGroups.has(unitId)) {
+        newGroups.delete(unitId);
+      } else {
+        newGroups.add(unitId);
+      }
+      return newGroups;
+    });
+  }, []);
+
   const handleHexMouseDown = useCallback((hex, event) => {
     // Only handle left mouse button for hex interactions
     if (event.button !== 0) return;
@@ -649,6 +670,11 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
     // Don't handle hex interactions while panning or transforming
     if (isPanning || isTransforming) return;
     
+    // Clear unit groups on any hex interaction (unless Ctrl is held)
+    if (!event?.ctrlKey && groupedUnits.size > 0) {
+      clearUnitGroups();
+    }
+    
     // Handle unit dropping when dragging
     if (isDraggingUnit && draggedUnit) {
       console.log('Hex clicked while dragging unit - attempting to drop unit');
@@ -706,7 +732,7 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
       }
     }
     // Erase mode now works on mouse down/drag, not click
-  }, [interactionMode, isDraggingLine, lineStartHex, lines, isPainting, selectedColor, socket, roomData, isPanning, isTransforming, isDraggingUnit, draggedUnit, units, moveUnit]);
+  }, [interactionMode, isDraggingLine, lineStartHex, lines, isPainting, selectedColor, socket, roomData, isPanning, isTransforming, isDraggingUnit, draggedUnit, units, moveUnit, groupedUnits, clearUnitGroups]);
 
   const handleInteractionModeChange = (event, newMode) => {
     if (newMode !== null) { // Prevent unselecting all buttons in ToggleButtonGroup
@@ -720,6 +746,7 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
       setPreviewLine(null);
       setHoveredHexKey(null);
       setHighlightedLinePath([]);
+      clearUnitGroups(); // Clear unit groups on mode change
       // setLastColoredHexKey(null); // Optional: decide if last colored info should persist across mode changes
     }
   };
@@ -739,7 +766,8 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
       isTransforming, 
       isReadOnly: unit.is_read_only,
       currentlyDragging: isDraggingUnit,
-      draggedUnit: draggedUnit?.name
+      draggedUnit: draggedUnit?.name,
+      ctrlKey: event.ctrlKey
     });
     
     if (event.button !== 0) return; // Only left mouse button
@@ -748,6 +776,18 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
     
     event.stopPropagation(); // Always prevent hex interaction
     event.preventDefault();
+    
+    // Handle Ctrl+Click for unit grouping
+    if (event.ctrlKey) {
+      toggleUnitInGroup(unit.id);
+      console.log('Toggled unit in group:', unit.name, 'isInGroup:', groupedUnits.has(unit.id));
+      return;
+    }
+    
+    // Clear unit groups on any non-ctrl click
+    if (groupedUnits.size > 0) {
+      clearUnitGroups();
+    }
     
     // Toggle logic for unit dragging
     if (interactionMode === 'erase') {
@@ -795,7 +835,7 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
       setDraggedUnitPosition(unit.hex_key); // Start at the unit's current position
       console.log('Started dragging unit:', unit.name, 'in mode:', interactionMode);
     }
-  }, [interactionMode, isPanning, isTransforming, deleteUnit, isDraggingUnit, draggedUnit, draggedUnitPosition, hoveredHexKey, units, moveUnit]);
+  }, [interactionMode, isPanning, isTransforming, deleteUnit, isDraggingUnit, draggedUnit, draggedUnitPosition, hoveredHexKey, units, moveUnit, toggleUnitInGroup, groupedUnits, clearUnitGroups]);
 
   const handleUnitMouseEnter = useCallback((unit) => {
     if (isPanning || isTransforming) return;
@@ -827,6 +867,60 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
   const handleTransformStop = useCallback(() => {
     setIsTransforming(false);
   }, []);
+
+  // Function to get all hexes within a given radius from a center hex
+  const getHexesWithinRadius = useCallback((centerHex, radius) => {
+    if (!centerHex) return [];
+    
+    const hexesInRadius = [];
+    const centerAxial = evenq_to_axial(centerHex);
+    
+    for (const hex of layout.hexes) {
+      const hexAxial = evenq_to_axial(hex);
+      const distance = (Math.abs(centerAxial.q - hexAxial.q) + 
+                       Math.abs(centerAxial.q + centerAxial.r - hexAxial.q - hexAxial.r) + 
+                       Math.abs(centerAxial.r - hexAxial.r)) / 2;
+      
+      if (distance <= radius) {
+        hexesInRadius.push({ ...hex, distance });
+      }
+    }
+    
+    return hexesInRadius;
+  }, [layout.hexes]);
+
+
+
+  // Get vision hexes for all grouped units
+  const getGroupedUnitsVision = useMemo(() => {
+    const visionHexes = new Map(); // hex_key -> { inRadius4: count, inRadius8: count, distance: min_distance }
+    
+    for (const unitId of groupedUnits) {
+      const unit = units.find(u => u.id === unitId);
+      if (!unit) continue;
+      
+      const unitHex = layout.hexes.find(h => h.key === unit.hex_key);
+      if (!unitHex) continue;
+      
+      // Get hexes within 8 hex radius (includes both 4 and 8)
+      const vision8 = getHexesWithinRadius(unitHex, 8);
+      vision8.forEach(hex => {
+        const existing = visionHexes.get(hex.key) || { inRadius4: 0, inRadius8: 0, distance: hex.distance };
+        
+        // If within 4 hex radius
+        if (hex.distance <= 4) {
+          existing.inRadius4 += 1;
+        }
+        // Always count for 8 hex radius (since we're already filtering by <= 8)
+        existing.inRadius8 += 1;
+        existing.distance = Math.min(existing.distance, hex.distance);
+        
+        visionHexes.set(hex.key, existing);
+      });
+    }
+    
+    return visionHexes;
+  }, [groupedUnits, units, layout.hexes, getHexesWithinRadius]);
 
   return (
     <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
@@ -936,6 +1030,43 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
             </ToggleButton>
           </ToggleButtonGroup>
         </Box>
+
+        {/* Unit Grouping Status Section */}
+        {groupedUnits.size > 0 && (
+          <Box sx={{ 
+            flexShrink: 0,
+            p: 1.5,
+            background: 'linear-gradient(135deg, rgba(0, 255, 255, 0.1), rgba(0, 153, 204, 0.05))',
+            border: '1px solid var(--neotech-primary)',
+            borderRadius: 1,
+            boxShadow: 'var(--neotech-glow-small)'
+          }}>
+            <Typography variant="h6" sx={{ 
+              mb: 1, 
+              fontSize: '12px', 
+              fontWeight: 'bold',
+              color: 'var(--neotech-primary)',
+              fontFamily: "'Rajdhani', monospace",
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+              textShadow: 'var(--neotech-glow-small)'
+            }}>
+              Unit Group ({groupedUnits.size})
+            </Typography>
+                         <Typography sx={{ 
+               fontSize: '10px',
+               color: 'var(--neotech-text-secondary)',
+               fontFamily: "'Rajdhani', monospace",
+               lineHeight: 1.3
+             }}>
+               Ctrl+Click units to add/remove from group.
+               Grouped units show vision ranges:
+               <br />• <span style={{color: '#00FFFF'}}>Bright Cyan</span>: 4 hex radius (close vision)
+               <br />• <span style={{color: '#4169E1'}}>Royal Blue</span>: 8 hex radius (distant vision)
+               <br />• <span style={{color: '#FFFFFF'}}>Thicker borders</span>: Multiple unit overlaps
+             </Typography>
+          </Box>
+        )}
 
         {/* Background Toggle Section */}
         <Box sx={{ flexShrink: 0 }}>
@@ -1331,6 +1462,87 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
                     );
                   })}
 
+                  {/* Render vision ranges for grouped units - 8 hex radius first (background) */}
+                  {groupedUnits.size > 0 && layout.hexes.map((hex) => {
+                    const visionData = getGroupedUnitsVision.get(hex.key);
+                    if (!visionData || visionData.inRadius8 === 0) return null;
+                    
+                    // Only render outer ring (5-8 hex distance) for 8-hex vision
+                    if (visionData.distance > 4) {
+                      const isIntersection = visionData.inRadius8 > 1;
+                      
+                      return (
+                        <g key={`vision8-${hex.key}`}>
+                          <circle
+                            cx={hex.centerX}
+                            cy={hex.centerY}
+                            r={hexSize * 0.85}
+                            fill={isIntersection ? 'rgba(100, 149, 237, 0.6)' : 'rgba(100, 149, 237, 0.4)'}
+                            stroke={isIntersection ? '#4169E1' : '#6495ED'}
+                            strokeWidth={isIntersection ? 3 : 2}
+                            style={{ pointerEvents: 'none' }}
+                          />
+                          {/* Intersection count for 8-hex range */}
+                          {isIntersection && (
+                            <text
+                              x={hex.centerX}
+                              y={hex.centerY + 5}
+                              textAnchor="middle"
+                              fontSize={hexSize * 0.25}
+                              fill="#FFFFFF"
+                              stroke="#000000"
+                              strokeWidth={2}
+                              fontWeight="bold"
+                              style={{ pointerEvents: 'none' }}
+                            >
+                              {visionData.inRadius8}
+                            </text>
+                          )}
+                        </g>
+                      );
+                    }
+                    return null;
+                  })}
+
+                  {/* Render vision ranges for grouped units - 4 hex radius second (foreground) */}
+                  {groupedUnits.size > 0 && layout.hexes.map((hex) => {
+                    const visionData = getGroupedUnitsVision.get(hex.key);
+                    if (!visionData || visionData.inRadius4 === 0) return null;
+                    
+                    // Only render inner circle (0-4 hex distance) for 4-hex vision
+                    const isIntersection = visionData.inRadius4 > 1;
+                    
+                    return (
+                      <g key={`vision4-${hex.key}`}>
+                        <circle
+                          cx={hex.centerX}
+                          cy={hex.centerY}
+                          r={hexSize * 0.75}
+                          fill={isIntersection ? 'rgba(0, 255, 255, 0.7)' : 'rgba(0, 255, 255, 0.5)'}
+                          stroke={isIntersection ? '#00FFFF' : '#40E0D0'}
+                          strokeWidth={isIntersection ? 4 : 2}
+                          style={{ pointerEvents: 'none' }}
+                        />
+                        {/* Intersection count for 4-hex range */}
+                        {isIntersection && (
+                          <text
+                            x={hex.centerX}
+                            y={hex.centerY + 5}
+                            textAnchor="middle"
+                            fontSize={hexSize * 0.3}
+                            fill="#000000"
+                            stroke="#FFFFFF"
+                            strokeWidth={1}
+                            fontWeight="bold"
+                            style={{ pointerEvents: 'none' }}
+                          >
+                            {visionData.inRadius4}
+                          </text>
+                        )}
+                      </g>
+                    );
+                  })}
+
                   {/* Render lines */}
                   {lines.map((line, index) => {
                     const isHoveredForErase = interactionMode === 'erase' && 
@@ -1382,6 +1594,7 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
                         isDragging={isDragging}
                         isReadOnly={unit.is_read_only}
                         isHovered={isHovered}
+                        isGrouped={groupedUnits.has(unit.id)}
                       />
                     );
                   })}
