@@ -99,6 +99,10 @@ const AdminPanel = ({ roomData, availableRooms, roomToggles, socket }) => {
         return roomData?.lines?.length || 0;
     };
 
+    const getTotalUnitCount = () => {
+        return roomData?.units?.length || 0;
+    };
+
     const getActiveRoomsCount = () => {
         return Object.values(roomToggles).filter(toggle => toggle.enabled).length;
     };
@@ -204,6 +208,15 @@ const AdminPanel = ({ roomData, availableRooms, roomToggles, socket }) => {
                             border: '1px solid var(--neotech-warning)'
                         }}
                     />
+                    <Chip 
+                        label={`${getTotalUnitCount()} Units`}
+                        size="small"
+                        sx={{ 
+                            background: 'rgba(128, 0, 255, 0.2)', 
+                            color: '#8000ff',
+                            border: '1px solid #8000ff'
+                        }}
+                    />
                 </Box>
             </Box>
 
@@ -279,6 +292,18 @@ const AdminPanel = ({ roomData, availableRooms, roomToggles, socket }) => {
                                                             height: '20px',
                                                             background: 'rgba(255, 170, 0, 0.2)', 
                                                             color: 'var(--neotech-warning)'
+                                                        }}
+                                                    />
+                                                )}
+                                                {roomInfo.unit_count > 0 && (
+                                                    <Chip 
+                                                        label={`${roomInfo.unit_count} units`}
+                                                        size="small"
+                                                        sx={{ 
+                                                            fontSize: '10px',
+                                                            height: '20px',
+                                                            background: 'rgba(128, 0, 255, 0.2)', 
+                                                            color: '#8000ff'
                                                         }}
                                                     />
                                                 )}

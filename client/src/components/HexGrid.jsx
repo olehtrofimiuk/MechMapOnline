@@ -2,6 +2,8 @@ import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import Hexagon from './Hexagon';
 import Line from './Line';
 import Arrow from './Arrow';
+import Unit from './Unit';
+import UnitCreationDialog from './UnitCreationDialog';
 import { HexColorPicker } from 'react-colorful';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import Box from '@mui/material/Box';
@@ -14,6 +16,7 @@ import BrushIcon from '@mui/icons-material/Brush';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import AdsClickIcon from '@mui/icons-material/AdsClick';
+import PersonIcon from '@mui/icons-material/Person';
 
 // Helper function to calculate distance between two hexes (axial coordinates)
 // Returns the minimum number of hex steps needed to move from hexA to hexB
@@ -127,12 +130,18 @@ const findHexAtPosition = (hexes, x, y, hexSize) => {
   return closestHex;
 };
 
-const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomData, initialHexData = {}, initialLines = [], onBackgroundToggle }) => {
+const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomData, initialHexData = {}, initialLines = [], initialUnits = [], onBackgroundToggle }) => {
   const [hexData, setHexData] = useState(initialHexData); 
   const [selectedColor, setSelectedColor] = useState('#0000FF');
   
   const [lines, setLines] = useState(initialLines);
-  const [interactionMode, setInteractionMode] = useState('color'); // 'color', 'draw', 'erase'
+  const [units, setUnits] = useState(initialUnits);
+  const [interactionMode, setInteractionMode] = useState('color'); // 'color', 'draw', 'erase', 'unit'
+
+  // Debug logging for interaction mode changes
+  useEffect(() => {
+    console.log('interactionMode changed to:', interactionMode);
+  }, [interactionMode]);
 
   // Panning state to disable hex interactions during panning
   const [isPanning, setIsPanning] = useState(false);
@@ -151,6 +160,19 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
 
   // Erasing State
   const [isErasing, setIsErasing] = useState(false); // For brush-like erasing
+
+  // Unit State
+  const [showUnitDialog, setShowUnitDialog] = useState(false);
+  const [unitCreationHex, setUnitCreationHex] = useState(null);
+  const [isDraggingUnit, setIsDraggingUnit] = useState(false);
+  const [draggedUnit, setDraggedUnit] = useState(null);
+  const [draggedUnitPosition, setDraggedUnitPosition] = useState(null); // Track current visual position during drag
+  const [hoveredUnitId, setHoveredUnitId] = useState(null);
+
+  // Debug logging for dragging state changes
+  useEffect(() => {
+    console.log('isDraggingUnit changed to:', isDraggingUnit, 'draggedUnit:', draggedUnit?.name || 'none', 'position:', draggedUnitPosition);
+  }, [isDraggingUnit, draggedUnit, draggedUnitPosition]);
 
   // Other users' cursors state
   const [otherUsersCursors, setOtherUsersCursors] = useState({}); // { userName: { hex_key, mode, timestamp } }
@@ -190,6 +212,28 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
       setLines(prevLines => [...prevLines, data.line]);
     };
 
+    // Listen for unit additions from other users
+    const handleUnitAdded = (data) => {
+      console.log('Unit added event received:', data);
+      setUnits(prevUnits => [...prevUnits, data.unit]);
+    };
+
+    // Listen for unit movements from other users
+    const handleUnitMoved = (data) => {
+      setUnits(prevUnits => 
+        prevUnits.map(unit => 
+          unit.id === data.unit_id 
+            ? { ...unit, hex_key: data.hex_key }
+            : unit
+        )
+      );
+    };
+
+    // Listen for unit deletions from other users
+    const handleUnitDeleted = (data) => {
+      setUnits(prevUnits => prevUnits.filter(unit => unit.id !== data.unit_id));
+    };
+
     // Listen for hex erasing from other users
     const handleHexErased = (data) => {
       // Update hex color
@@ -199,6 +243,8 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
       }));
       // Update lines
       setLines(data.lines);
+      // Update units
+      setUnits(data.units);
     };
 
     // Listen for other users' cursor movements
@@ -241,6 +287,9 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
 
     socket.on('hex_updated', handleHexUpdated);
     socket.on('line_added', handleLineAdded);
+    socket.on('unit_added', handleUnitAdded);
+    socket.on('unit_moved', handleUnitMoved);
+    socket.on('unit_deleted', handleUnitDeleted);
     socket.on('hex_erased', handleHexErased);
     socket.on('cursor_moved', handleCursorMoved);
     socket.on('user_left', handleUserLeft);
@@ -249,6 +298,9 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
     return () => {
       socket.off('hex_updated', handleHexUpdated);
       socket.off('line_added', handleLineAdded);
+      socket.off('unit_added', handleUnitAdded);
+      socket.off('unit_moved', handleUnitMoved);
+      socket.off('unit_deleted', handleUnitDeleted);
       socket.off('hex_erased', handleHexErased);
       socket.off('cursor_moved', handleCursorMoved);
       socket.off('user_left', handleUserLeft);
@@ -264,6 +316,12 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
   useEffect(() => {
     setLines(initialLines);
   }, [initialLines]);
+
+  // Update units when initial data changes (room joined)
+  useEffect(() => {
+    console.log('HexGrid: Initial units changed:', initialUnits);
+    setUnits(initialUnits);
+  }, [initialUnits]);
 
   // Clean up old cursor positions periodically
   useEffect(() => {
@@ -282,6 +340,24 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
 
     return () => clearInterval(interval);
   }, []);
+
+  // Global right-click handler to cancel unit dragging
+  useEffect(() => {
+    const handleGlobalRightClick = (event) => {
+      if (isDraggingUnit) {
+        console.log('Right click - cancelling unit drag');
+        setIsDraggingUnit(false);
+        setDraggedUnit(null);
+        event.preventDefault();
+      }
+    };
+
+    document.addEventListener('contextmenu', handleGlobalRightClick);
+
+    return () => {
+      document.removeEventListener('contextmenu', handleGlobalRightClick);
+    };
+  }, [isDraggingUnit]);
 
   const startingHex = {q:1, r:1}
   const layout = useMemo(() => {
@@ -335,6 +411,8 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
     setLines(prevLines => prevLines.filter(line => 
         line.start.key !== hexKey && line.end.key !== hexKey
     ));
+    // Remove any units on this hex
+    setUnits(prevUnits => prevUnits.filter(unit => unit.hex_key !== hexKey));
     // Reset hex color to default (lightgray) which will make it transparent
     setHexData(prevData => ({
         ...prevData,
@@ -345,6 +423,47 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
     if (socket && roomData) {
       socket.emit('hex_erase', {
         hex_key: hexKey
+      });
+    }
+  }, [socket, roomData]);
+
+  const createUnit = useCallback((unitData) => {
+    // Emit to server
+    if (socket && roomData) {
+      socket.emit('unit_add', {
+        unit: unitData
+      });
+    }
+    // Note: Don't add to local state here - wait for server confirmation via unit_added event
+  }, [socket, roomData]);
+
+  const moveUnit = useCallback((unitId, newHexKey) => {
+    // Update local state immediately
+    setUnits(prevUnits => 
+      prevUnits.map(unit => 
+        unit.id === unitId 
+          ? { ...unit, hex_key: newHexKey }
+          : unit
+      )
+    );
+
+    // Emit to other users
+    if (socket && roomData) {
+      socket.emit('unit_move', {
+        unit_id: unitId,
+        hex_key: newHexKey
+      });
+    }
+  }, [socket, roomData]);
+
+  const deleteUnit = useCallback((unitId) => {
+    // Remove from local state
+    setUnits(prevUnits => prevUnits.filter(unit => unit.id !== unitId));
+
+    // Emit to other users
+    if (socket && roomData) {
+      socket.emit('unit_delete', {
+        unit_id: unitId
       });
     }
   }, [socket, roomData]);
@@ -368,17 +487,25 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
       eraseHex(hex.key);
       setIsErasing(true);
     }
-    // No mousedown action for 'select' mode directly, click will handle it.
+    // Unit creation is now handled in handleHexClick
   }, [interactionMode, applyColorToHex, eraseHex, isPanning, isTransforming]);
 
   const handleHexMouseEnter = useCallback((hex) => {
-    // Don't handle hex interactions while panning or transforming
-    if (isPanning || isTransforming) return;
-    
+    // Always allow hovering for visual feedback, even during unit dragging
     setHoveredHexKey(hex.key);
+    
+    // Don't update cursor or handle interactions while panning/transforming (but allow during unit dragging)
+    if (isPanning || isTransforming) return;
     
     // Use throttled cursor update instead of direct socket emission
     throttledCursorUpdate(hex.key, interactionMode);
+    
+    // During unit dragging, only allow hover for visual feedback and track position
+    if (isDraggingUnit) {
+      console.log('Unit drag hover:', hex.key);
+      setDraggedUnitPosition(hex.key);
+      return;
+    }
     
     if (interactionMode === 'draw' && isDraggingLine && lineStartHex) {
       // Snap preview line to entering hex's center (local coords)
@@ -396,7 +523,7 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
     } else if (interactionMode === 'erase' && isErasing) {
       eraseHex(hex.key);
     }
-  }, [interactionMode, isDraggingLine, lineStartHex, isPainting, isErasing, applyColorToHex, eraseHex, throttledCursorUpdate, isPanning, isTransforming]);
+  }, [interactionMode, isDraggingLine, lineStartHex, isPainting, isErasing, applyColorToHex, eraseHex, throttledCursorUpdate, isPanning, isTransforming, isDraggingUnit]);
   const svgWidth = gridWidth * hexSize * 1.5 + hexSize * 2;
   const svgHeight = gridHeight * hexSize * 1.7 + hexSize * 2;
   
@@ -444,7 +571,7 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
     }
   }, [interactionMode, isDraggingLine, lineStartHex, layout.offsetX, layout.offsetY, hoveredHexKey, layout.hexes, hexSize]);
 
-  const handleSvgMouseUp = useCallback(() => {
+  const handleSvgMouseUp = useCallback((event) => {
     if (interactionMode === 'draw' && isDraggingLine && lineStartHex) {
         const targetHexKey = hoveredHexKey; // Check if mouse was over a hex upon release
         if (targetHexKey) {
@@ -474,16 +601,17 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
     if (interactionMode === 'erase' && isErasing) {
       setIsErasing(false);
     }
+    
     // Clear hover state on mouse up to prevent bright hex from staying highlighted
     setHoveredHexKey(null);
-  }, [interactionMode, isDraggingLine, lineStartHex, isPainting, isErasing, lines, hoveredHexKey, layout.hexes, selectedColor, socket, roomData]);
+  }, [hoveredHexKey, interactionMode, isDraggingLine, lineStartHex, isPainting, isErasing, layout.hexes, selectedColor, socket, roomData]);
 
   const handleHexMouseUp = useCallback((hex, event) => {
     // Only handle left mouse button for hex interactions
     if (event && event.button !== 0) return;
     
-    // Don't handle hex interactions while panning or transforming
-    if (isPanning || isTransforming) return;
+    // Don't handle hex interactions while panning, transforming, or unit dragging
+    if (isPanning || isTransforming || isDraggingUnit) return;
     
     // This specifically handles mouse up *on a hex*
     if (interactionMode === 'draw' && isDraggingLine && lineStartHex) {
@@ -512,7 +640,7 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
     setHoveredHexKey(null);
     // If not dragging, SvgMouseUp will handle it via hoveredHexKey, so this becomes a fallback
     // or can be simplified if SvgMouseUp is robust enough.
-  }, [interactionMode, isDraggingLine, lineStartHex, isPainting, isErasing, lines, selectedColor, socket, roomData, isPanning, isTransforming]);
+  }, [interactionMode, isDraggingLine, lineStartHex, isPainting, isErasing, lines, selectedColor, socket, roomData, isPanning, isTransforming, isDraggingUnit]);
 
   const handleHexClick = useCallback((hex, event) => {
     // Only handle left mouse button for hex interactions
@@ -520,6 +648,26 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
     
     // Don't handle hex interactions while panning or transforming
     if (isPanning || isTransforming) return;
+    
+    // Handle unit dropping when dragging
+    if (isDraggingUnit && draggedUnit) {
+      console.log('Hex clicked while dragging unit - attempting to drop unit');
+      if (hex.key !== draggedUnit.hex_key) {
+        // Check if target hex already has a unit
+        const existingUnit = units.find(unit => unit.hex_key === hex.key && unit.id !== draggedUnit.id);
+        if (!existingUnit) {
+          console.log('Moving unit to:', hex.key);
+          moveUnit(draggedUnit.id, hex.key);
+        } else {
+          console.log('Target hex already has a unit');
+        }
+      }
+      // Stop dragging after attempting to drop
+      setIsDraggingUnit(false);
+      setDraggedUnit(null);
+      setDraggedUnitPosition(null);
+      return; // Don't process other hex interactions
+    }
     
     if (interactionMode === 'draw' && !isDraggingLine) {
       if (!lineStartHex) {
@@ -544,9 +692,21 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
       }
     } else if (interactionMode === 'color' && !isPainting) {
         setLastColoredHexKey(hex.key); 
+    } else if (interactionMode === 'unit' && !isDraggingUnit) {
+      // Check if there's already a unit on this hex
+      const existingUnit = units.find(unit => unit.hex_key === hex.key);
+      console.log('Trying to create unit on hex:', hex.key, 'existing unit found:', existingUnit?.name || 'none');
+      if (!existingUnit) {
+        // Create new unit
+        console.log('Creating new unit on hex:', hex.key);
+        setUnitCreationHex(hex);
+        setShowUnitDialog(true);
+      } else {
+        console.log('Cannot create unit - hex already occupied by:', existingUnit.name);
+      }
     }
     // Erase mode now works on mouse down/drag, not click
-  }, [interactionMode, isDraggingLine, lineStartHex, lines, isPainting, selectedColor, socket, roomData, isPanning, isTransforming]);
+  }, [interactionMode, isDraggingLine, lineStartHex, lines, isPainting, selectedColor, socket, roomData, isPanning, isTransforming, isDraggingUnit, draggedUnit, units, moveUnit]);
 
   const handleInteractionModeChange = (event, newMode) => {
     if (newMode !== null) { // Prevent unselecting all buttons in ToggleButtonGroup
@@ -555,12 +715,96 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
       setIsPainting(false);
       setIsErasing(false);
       setIsDraggingLine(false);
+      setIsDraggingUnit(false);
+      setDraggedUnit(null);
       setPreviewLine(null);
       setHoveredHexKey(null);
       setHighlightedLinePath([]);
       // setLastColoredHexKey(null); // Optional: decide if last colored info should persist across mode changes
     }
   };
+
+  const handleUnitCreation = useCallback((unitData) => {
+    createUnit(unitData);
+    setShowUnitDialog(false);
+    setUnitCreationHex(null);
+  }, [createUnit]);
+
+  const handleUnitClick = useCallback((unit, event) => {
+    console.log('handleUnitClick called:', { 
+      unitName: unit.name, 
+      button: event.button, 
+      interactionMode, 
+      isPanning, 
+      isTransforming, 
+      isReadOnly: unit.is_read_only,
+      currentlyDragging: isDraggingUnit,
+      draggedUnit: draggedUnit?.name
+    });
+    
+    if (event.button !== 0) return; // Only left mouse button
+    if (isPanning || isTransforming) return;
+    if (unit.is_read_only) return; // Don't drag read-only units in admin rooms
+    
+    event.stopPropagation(); // Always prevent hex interaction
+    event.preventDefault();
+    
+    // Toggle logic for unit dragging
+    if (interactionMode === 'erase') {
+      deleteUnit(unit.id);
+      console.log('Deleted unit in erase mode:', unit.name);
+    } else if (isDraggingUnit && draggedUnit && draggedUnit.id === unit.id) {
+      // Clicking the same unit that's being dragged - stop dragging at current visual position
+      const targetHexKey = draggedUnitPosition || hoveredHexKey;
+      
+      console.log('Stopping drag - current state:', { 
+        hoveredHexKey, 
+        draggedUnitPosition,
+        targetHexKey,
+        originalPosition: draggedUnit.hex_key,
+        hasDifferentPosition: targetHexKey && targetHexKey !== draggedUnit.hex_key
+      });
+      
+      if (targetHexKey && targetHexKey !== draggedUnit.hex_key) {
+        // Check if target hex already has a unit
+        const existingUnit = units.find(unit => unit.hex_key === targetHexKey && unit.id !== draggedUnit.id);
+        if (!existingUnit) {
+          console.log('Stopping drag and moving unit to position:', targetHexKey);
+          moveUnit(draggedUnit.id, targetHexKey);
+        } else {
+          console.log('Cannot stop at target position - hex already has a unit');
+        }
+      } else {
+        console.log('No valid target position or same as original - unit stays at original position');
+      }
+      
+      // Reset all dragging states
+      setIsDraggingUnit(false);
+      setDraggedUnit(null);
+      setDraggedUnitPosition(null);
+      console.log('Stopped dragging unit:', unit.name);
+    } else if (isDraggingUnit && draggedUnit && draggedUnit.id !== unit.id) {
+      // Clicking a different unit while dragging - switch to this unit
+      setDraggedUnit(unit);
+      setDraggedUnitPosition(unit.hex_key); // Start at the new unit's position
+      console.log('Switched dragging to unit:', unit.name);
+    } else {
+      // Start dragging this unit
+      setIsDraggingUnit(true);
+      setDraggedUnit(unit);
+      setDraggedUnitPosition(unit.hex_key); // Start at the unit's current position
+      console.log('Started dragging unit:', unit.name, 'in mode:', interactionMode);
+    }
+  }, [interactionMode, isPanning, isTransforming, deleteUnit, isDraggingUnit, draggedUnit, draggedUnitPosition, hoveredHexKey, units, moveUnit]);
+
+  const handleUnitMouseEnter = useCallback((unit) => {
+    if (isPanning || isTransforming) return;
+    setHoveredUnitId(unit.id);
+  }, [isPanning, isTransforming]);
+
+  const handleUnitMouseLeave = useCallback(() => {
+    setHoveredUnitId(null);
+  }, []);
 
   const getHexAtKey = (key) => layout.hexes.find(h => h.key === key);
   const lastColoredHexDetails = lastColoredHexKey ? getHexAtKey(lastColoredHexKey) : null;
@@ -682,6 +926,10 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
               <TimelineIcon sx={{ mr: 1, fontSize: '16px' }} />
               Measure
             </ToggleButton>
+            <ToggleButton value="unit" aria-label="unit mode">
+              <PersonIcon sx={{ mr: 1, fontSize: '16px' }} />
+              Units
+            </ToggleButton>
             <ToggleButton value="erase" aria-label="erase lines mode">
               <DeleteOutlineIcon sx={{ mr: 1, fontSize: '16px' }} />
               Erase
@@ -751,7 +999,7 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
         </Box>
 
         {/* Color Section - Make it scrollable if needed */}
-        {(interactionMode === 'color' || interactionMode === 'draw') && (
+        {(interactionMode === 'color' || interactionMode === 'draw' || interactionMode === 'unit') && (
           <Box sx={{ flexShrink: 0, display: 'flex', flexDirection: 'column', maxHeight: '60vh' }}>
             <Typography variant="h6" sx={{ 
               mb: 1, 
@@ -869,12 +1117,21 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
               {hoveredHexKey && <><br/>Target: ({hoveredHexKey.split(',')[0]}, {hoveredHexKey.split(',')[1]})</>}
             </Typography>
           )}
+          {interactionMode === 'unit' && (
+            <Typography variant="caption" sx={{ 
+              color: 'var(--neotech-accent)',
+              fontFamily: "'Rajdhani', monospace"
+            }}>
+              {isDraggingUnit ? "Moving unit..." : "Click hex to create unit, drag to move"}
+              <br/>Units: {units.length}
+            </Typography>
+          )}
           {interactionMode === 'erase' && (
             <Typography variant="caption" sx={{ 
               color: 'var(--neotech-error)',
               fontFamily: "'Rajdhani', monospace"
             }}>
-              Drag to erase lines and colors
+              Drag to erase lines, colors, and units
             </Typography>
           )}
         </Box>
@@ -955,6 +1212,7 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
                   cursor: 
                     interactionMode === 'color' && isPainting ? 'grabbing' : 
                     interactionMode === 'erase' && isErasing ? 'grabbing' :
+                    interactionMode === 'unit' && isDraggingUnit ? 'grabbing' :
                     interactionMode === 'erase' ? 'crosshair' :
                     'grab'
                 }}
@@ -977,15 +1235,20 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
                       lines.some(line => line.start.key === hex.key || line.end.key === hex.key);
                     const currentHexData = hexData[hex.key] || {};
                     const isPaintedHex = currentHexData.fillColor && currentHexData.fillColor !== 'lightgray';
-                    const isErasableHighlight = interactionMode === 'erase' && isHovered && (isErasableEndpoint || isPaintedHex);
+                    const hasUnit = units.some(unit => unit.hex_key === hex.key);
+                    const isErasableHighlight = interactionMode === 'erase' && isHovered && (isErasableEndpoint || isPaintedHex || hasUnit);
                     const isInLinePath = highlightedLinePath.includes(hex.key);
                     
                     const highlight = interactionMode === 'draw' && (isLineStartingPoint || (isDraggingLine && isHovered));
-                    const isGeneralHover = isHovered && !highlight && !isErasableHighlight;
+                    // Don't show general hover for unit mode on empty hexes to avoid blocking clicks
+                    const isGeneralHover = isHovered && !highlight && !isErasableHighlight && 
+                      !(interactionMode === 'unit' && !hasUnit && !isDraggingUnit);
                     const isSelected = interactionMode === 'color' && lastColoredHexKey === hex.key && !isPainting;
+                    // Only show unit hover for dragging, not for creation to avoid blocking clicks
+                    const isUnitTargetHover = interactionMode === 'unit' && isHovered && isDraggingUnit;
                     
                     // Only render if NOT highlighted, hovered, selected, or in line path
-                    return !highlight && !isErasableHighlight && !isGeneralHover && !isSelected && !isInLinePath;
+                    return !highlight && !isErasableHighlight && !isGeneralHover && !isSelected && !isInLinePath && !isUnitTargetHover;
                   }).map((hex) => {
                     const currentHexData = hexData[hex.key] || {};
                     
@@ -1016,15 +1279,20 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
                       lines.some(line => line.start.key === hex.key || line.end.key === hex.key);
                     const currentHexData = hexData[hex.key] || {};
                     const isPaintedHex = currentHexData.fillColor && currentHexData.fillColor !== 'lightgray';
-                    const isErasableHighlight = interactionMode === 'erase' && isHovered && (isErasableEndpoint || isPaintedHex);
+                    const hasUnit = units.some(unit => unit.hex_key === hex.key);
+                    const isErasableHighlight = interactionMode === 'erase' && isHovered && (isErasableEndpoint || isPaintedHex || hasUnit);
                     const isInLinePath = highlightedLinePath.includes(hex.key);
                     
                     const highlight = interactionMode === 'draw' && (isLineStartingPoint || (isDraggingLine && isHovered));
-                    const isGeneralHover = isHovered && !highlight && !isErasableHighlight;
+                    // Don't show general hover for unit mode on empty hexes to avoid blocking clicks
+                    const isGeneralHover = isHovered && !highlight && !isErasableHighlight && 
+                      !(interactionMode === 'unit' && !hasUnit && !isDraggingUnit);
                     const isSelected = interactionMode === 'color' && lastColoredHexKey === hex.key && !isPainting;
+                    // Only show unit hover for dragging, not for creation to avoid blocking clicks
+                    const isUnitTargetHover = interactionMode === 'unit' && isHovered && isDraggingUnit;
                     
                     // Only render if highlighted, hovered, selected, or in line path
-                    return highlight || isErasableHighlight || isGeneralHover || isSelected || isInLinePath;
+                    return highlight || isErasableHighlight || isGeneralHover || isSelected || isInLinePath || isUnitTargetHover;
                   }).map((hex) => {
                     const currentHexData = hexData[hex.key] || {};
                     const isLineStartingPoint = interactionMode === 'draw' && lineStartHex?.key === hex.key;
@@ -1032,11 +1300,16 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
                     const isErasableEndpoint = interactionMode === 'erase' && isHovered && 
                       lines.some(line => line.start.key === hex.key || line.end.key === hex.key);
                     const isPaintedHex = currentHexData.fillColor && currentHexData.fillColor !== 'lightgray';
-                    const isErasableHighlight = interactionMode === 'erase' && isHovered && (isErasableEndpoint || isPaintedHex);
+                    const hasUnit = units.some(unit => unit.hex_key === hex.key);
+                    const isErasableHighlight = interactionMode === 'erase' && isHovered && (isErasableEndpoint || isPaintedHex || hasUnit);
                     const isInLinePath = highlightedLinePath.includes(hex.key);
                     
                     const highlight = interactionMode === 'draw' && (isLineStartingPoint || (isDraggingLine && isHovered));
-                    const isGeneralHover = isHovered && !highlight && !isErasableHighlight;
+                    // Don't show general hover for unit mode on empty hexes to avoid blocking clicks
+                    const isGeneralHover = isHovered && !highlight && !isErasableHighlight && 
+                      !(interactionMode === 'unit' && !hasUnit && !isDraggingUnit);
+                    // Only show unit hover for dragging, not for creation to avoid blocking clicks
+                    const isUnitTargetHover = interactionMode === 'unit' && isHovered && isDraggingUnit;
 
                     return (
                       <Hexagon
@@ -1048,7 +1321,7 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
                         onMouseDown={handleHexMouseDown}
                         onMouseUp={handleHexMouseUp}
                         onMouseEnter={handleHexMouseEnter}
-                        isHighlighted={highlight || isErasableHighlight}
+                        isHighlighted={highlight || isErasableHighlight || isUnitTargetHover}
                         isHovered={isGeneralHover}
                         isSelectedForColoring={interactionMode === 'color' && lastColoredHexKey === hex.key && !isPainting}
                         isInLinePath={isInLinePath}
@@ -1058,6 +1331,7 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
                     );
                   })}
 
+                  {/* Render lines */}
                   {lines.map((line, index) => {
                     const isHoveredForErase = interactionMode === 'erase' && 
                                               (hoveredHexKey === line.start.key || hoveredHexKey === line.end.key);
@@ -1071,6 +1345,43 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
                         distance={line.distance}
                         isHoveredForErase={isHoveredForErase}
                         color={line.color || selectedColor}
+                      />
+                    );
+                  })}
+
+                  {/* Render units */}
+                  {console.log('Rendering units:', units.length, units)}
+                  {units.map((unit) => {
+                    const hex = layout.hexes.find(h => h.key === unit.hex_key);
+                    if (!hex) return null;
+                    
+                    const isDragging = isDraggingUnit && draggedUnit && draggedUnit.id === unit.id;
+                    const isHovered = hoveredUnitId === unit.id;
+                    
+                    // If this unit is being dragged, show it at the tracked drag position
+                    let displayX = hex.centerX;
+                    let displayY = hex.centerY;
+                    
+                    if (isDragging && draggedUnitPosition && draggedUnitPosition !== unit.hex_key) {
+                      const dragHex = layout.hexes.find(h => h.key === draggedUnitPosition);
+                      if (dragHex) {
+                        displayX = dragHex.centerX;
+                        displayY = dragHex.centerY;
+                      }
+                    }
+                    
+                    return (
+                      <Unit
+                        key={unit.id}
+                        unit={unit}
+                        centerX={displayX}
+                        centerY={displayY}
+                        onClick={(e) => handleUnitClick(unit, e)}
+                        onMouseEnter={() => handleUnitMouseEnter(unit)}
+                        onMouseLeave={handleUnitMouseLeave}
+                        isDragging={isDragging}
+                        isReadOnly={unit.is_read_only}
+                        isHovered={isHovered}
                       />
                     );
                   })}
@@ -1158,6 +1469,15 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
           </TransformWrapper>
         </Box>
       </Box>
+
+      {/* Unit Creation Dialog */}
+      <UnitCreationDialog
+        open={showUnitDialog}
+        onClose={() => setShowUnitDialog(false)}
+        onConfirm={handleUnitCreation}
+        hexKey={unitCreationHex?.key}
+        initialColor={selectedColor}
+      />
     </Box>
   );
 };

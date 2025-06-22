@@ -78,6 +78,7 @@ const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLog
         is_owner: data.is_owner,
         hexData: data.hex_data,
         lines: data.lines,
+        units: data.units || [],
         users: data.users
       });
     });
@@ -94,6 +95,7 @@ const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLog
         is_owner: data.is_owner,
         hexData: data.hex_data,
         lines: data.lines,
+        units: data.units || [],
         users: data.users
       });
     });
@@ -113,6 +115,7 @@ const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLog
           is_owner: data.is_owner,
           hexData: data.hex_data,
           lines: data.lines,
+          units: data.units || [],
           users: data.users,
           available_rooms: data.available_rooms,
           room_toggles: data.room_toggles,
@@ -133,6 +136,7 @@ const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLog
           is_owner: data.is_owner,
           hexData: data.hex_data,
           lines: data.lines,
+          units: data.units || [],
           users: data.users,
           available_rooms: data.available_rooms,
           room_toggles: data.room_toggles,

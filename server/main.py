@@ -89,11 +89,12 @@ def create_admin_room(room_name="Admin Room", owner=None):
 def get_aggregated_room_data(admin_room_id: str) -> Dict[str, Any]:
     """Get aggregated hex_data and lines from enabled rooms for admin room"""
     if admin_room_id not in admin_rooms:
-        return {'hex_data': {}, 'lines': []}
+        return {'hex_data': {}, 'lines': [], 'units': []}
     
     admin_room = admin_rooms[admin_room_id]
     aggregated_hex_data = {}
     aggregated_lines = []
+    aggregated_units = []
     
     for room_id, toggle_data in admin_room['room_toggles'].items():
         if toggle_data.get('enabled', False) and room_id in rooms:
@@ -137,10 +138,22 @@ def get_aggregated_room_data(admin_room_id: str) -> Dict[str, Any]:
                     }
                 }
                 aggregated_lines.append(aggregated_line)
+            
+            # Add room information to units with prefixed IDs for conflict resolution
+            for unit in room.get('units', []):
+                aggregated_unit = {
+                    **unit,
+                    'room_id': room_id,
+                    'room_name': room['name'],
+                    'unit_id': f"{room_id}_{unit.get('id', 'unit')}",  # Add unique unit ID
+                    'is_read_only': True  # Mark as read-only in admin view
+                }
+                aggregated_units.append(aggregated_unit)
     
     return {
         'hex_data': aggregated_hex_data,
-        'lines': aggregated_lines
+        'lines': aggregated_lines,
+        'units': aggregated_units
     }
 
 def ensure_data_directory():
@@ -159,6 +172,7 @@ def save_rooms_to_file():
                 'name': room['name'],
                 'hex_data': room['hex_data'],
                 'lines': room['lines'],
+                'units': room.get('units', []),  # Include units in save
                 'created_at': room['created_at'],
                 'last_activity': room['last_activity'],
                 'owner': room.get('owner')  # Add owner info
@@ -204,6 +218,7 @@ def load_rooms_from_file():
                 'name': room_data['name'],
                 'hex_data': room_data['hex_data'],
                 'lines': room_data['lines'],
+                'units': room_data.get('units', []),  # Load units, default to empty list for old saves
                 'users': {},  # Start with no active users
                 'created_at': room_data['created_at'],
                 'last_activity': room_data['last_activity'],
@@ -303,6 +318,7 @@ def create_new_room(room_name="Unnamed Room", owner=None):
         'name': room_name,
         'hex_data': {},  # hex_key -> {fillColor, ...}
         'lines': [],     # list of line objects
+        'units': [],     # list of unit objects: {id, name, color, hex_key, created_by}
         'users': {},     # sid -> user_info
         'created_at': asyncio.get_event_loop().time(),
         'last_activity': asyncio.get_event_loop().time(),
@@ -453,10 +469,11 @@ async def handle_create_room(sid, data):
         aggregated_data = get_aggregated_room_data(room_id)
         regular_rooms = []
         for rid, room in rooms.items():
-            # Calculate hex and line counts for each room
+            # Calculate hex, line, and unit counts for each room
             hex_count = sum(1 for hex_data in room['hex_data'].values() 
                            if hex_data.get('fillColor') and hex_data['fillColor'] != 'lightgray')
             line_count = len(room['lines'])
+            unit_count = len(room.get('units', []))
             
             # Initialize or update room toggle data with counts
             if rid not in admin_rooms[room_id]['room_toggles']:
@@ -464,13 +481,15 @@ async def handle_create_room(sid, data):
                     'enabled': False,
                     'room_name': room['name'],
                     'hex_count': hex_count,
-                    'line_count': line_count
+                    'line_count': line_count,
+                    'unit_count': unit_count
                 }
             else:
                 # Update counts for existing toggle
                 admin_rooms[room_id]['room_toggles'][rid].update({
                     'hex_count': hex_count,
-                    'line_count': line_count
+                    'line_count': line_count,
+                    'unit_count': unit_count
                 })
             
             regular_rooms.append({
@@ -478,6 +497,7 @@ async def handle_create_room(sid, data):
                 'name': room['name'],  # Changed from 'room_name' to 'name'
                 'hex_count': hex_count,
                 'line_count': line_count,
+                'unit_count': unit_count,
                 'enabled': admin_rooms[room_id]['room_toggles'][rid]['enabled']
             })
         
@@ -492,6 +512,7 @@ async def handle_create_room(sid, data):
             'is_owner': True,
             'hex_data': aggregated_data['hex_data'],
             'lines': aggregated_data['lines'],
+            'units': aggregated_data['units'],
             'users': list(admin_rooms[room_id]['users'].values()),
             'available_rooms': regular_rooms,
             'room_toggles': admin_rooms[room_id]['room_toggles']
@@ -529,6 +550,7 @@ async def handle_create_room(sid, data):
             'is_owner': room_owner is not None,
             'hex_data': rooms[room_id]['hex_data'],
             'lines': rooms[room_id]['lines'],
+            'units': rooms[room_id].get('units', []),
             'users': list(rooms[room_id]['users'].values())
         }, room=sid)
 
@@ -582,10 +604,11 @@ async def handle_join_room(sid, data):
         aggregated_data = get_aggregated_room_data(room_id)
         regular_rooms = []
         for rid, room in rooms.items():
-            # Calculate hex and line counts for each room
+            # Calculate hex, line, and unit counts for each room
             hex_count = sum(1 for hex_data in room['hex_data'].values() 
                            if hex_data.get('fillColor') and hex_data['fillColor'] != 'lightgray')
             line_count = len(room['lines'])
+            unit_count = len(room.get('units', []))
             
             # Initialize or update room toggle data with counts
             if rid not in admin_rooms[room_id]['room_toggles']:
@@ -593,13 +616,15 @@ async def handle_join_room(sid, data):
                     'enabled': False,
                     'room_name': room['name'],
                     'hex_count': hex_count,
-                    'line_count': line_count
+                    'line_count': line_count,
+                    'unit_count': unit_count
                 }
             else:
                 # Update counts for existing toggle
                 admin_rooms[room_id]['room_toggles'][rid].update({
                     'hex_count': hex_count,
-                    'line_count': line_count
+                    'line_count': line_count,
+                    'unit_count': unit_count
                 })
             
             regular_rooms.append({
@@ -607,6 +632,7 @@ async def handle_join_room(sid, data):
                 'name': room['name'],  # Changed from 'room_name' to 'name'
                 'hex_count': hex_count,
                 'line_count': line_count,
+                'unit_count': unit_count,
                 'enabled': admin_rooms[room_id]['room_toggles'][rid]['enabled']
             })
         
@@ -618,6 +644,7 @@ async def handle_join_room(sid, data):
             'is_owner': is_owner,
             'hex_data': aggregated_data['hex_data'],
             'lines': aggregated_data['lines'],
+            'units': aggregated_data['units'],
             'users': list(admin_rooms[room_id]['users'].values()),
             'available_rooms': regular_rooms,
             'room_toggles': admin_rooms[room_id]['room_toggles']
@@ -669,6 +696,7 @@ async def handle_join_room(sid, data):
             'is_owner': is_owner,
             'hex_data': rooms[room_id]['hex_data'],
             'lines': rooms[room_id]['lines'],
+            'units': rooms[room_id].get('units', []),
             'users': list(rooms[room_id]['users'].values())
         }, room=sid)
         
@@ -683,16 +711,18 @@ async def notify_admin_rooms_of_room_update(updated_room_id: str):
     """Notify all admin rooms that have this room enabled"""
     for admin_room_id, admin_room in admin_rooms.items():
         if updated_room_id in admin_room['room_toggles'] and admin_room['room_toggles'][updated_room_id].get('enabled', False):
-            # Update hex and line counts for the updated room
+            # Update hex, line, and unit counts for the updated room
             updated_room = rooms[updated_room_id]
             hex_count = sum(1 for hex_data in updated_room['hex_data'].values() 
                            if hex_data.get('fillColor') and hex_data['fillColor'] != 'lightgray')
             line_count = len(updated_room['lines'])
+            unit_count = len(updated_room.get('units', []))
             
             # Update the toggle data with new counts
             admin_room['room_toggles'][updated_room_id].update({
                 'hex_count': hex_count,
-                'line_count': line_count
+                'line_count': line_count,
+                'unit_count': unit_count
             })
             
             # Get updated aggregated data
@@ -702,6 +732,7 @@ async def notify_admin_rooms_of_room_update(updated_room_id: str):
             await sio.emit('admin_room_data_updated', {
                 'hex_data': aggregated_data['hex_data'],
                 'lines': aggregated_data['lines'],
+                'units': aggregated_data['units'],
                 'room_toggles': admin_room['room_toggles'],
                 'updated_room': updated_room_id,
                 'updated_room_name': rooms[updated_room_id]['name']
@@ -811,6 +842,14 @@ async def handle_hex_erase(sid, data):
         if line['start']['key'] != hex_key and line['end']['key'] != hex_key
     ]
     
+    # Remove units on this hex
+    if 'units' not in rooms[room_id]:
+        rooms[room_id]['units'] = []
+    rooms[room_id]['units'] = [
+        unit for unit in rooms[room_id]['units'] 
+        if unit['hex_key'] != hex_key
+    ]
+    
     # Update last activity
     rooms[room_id]['last_activity'] = asyncio.get_event_loop().time()
     
@@ -818,6 +857,7 @@ async def handle_hex_erase(sid, data):
     await sio.emit('hex_erased', {
         'hex_key': hex_key,
         'lines': rooms[room_id]['lines'],
+        'units': rooms[room_id]['units'],
         'user_name': user_data['user_name']
     }, room=room_id, skip_sid=sid)
     
@@ -996,18 +1036,20 @@ async def handle_admin_toggle_room(sid, data):
         }, room=sid)
         return
     
-    # Calculate hex and line counts for the target room
+    # Calculate hex, line, and unit counts for the target room
     target_room = rooms[target_room_id]
     hex_count = sum(1 for hex_data in target_room['hex_data'].values() 
                    if hex_data.get('fillColor') and hex_data['fillColor'] != 'lightgray')
     line_count = len(target_room['lines'])
+    unit_count = len(target_room.get('units', []))
     
     # Update toggle state with counts
     admin_rooms[room_id]['room_toggles'][target_room_id] = {
         'enabled': enabled,
         'room_name': rooms[target_room_id]['name'],
         'hex_count': hex_count,
-        'line_count': line_count
+        'line_count': line_count,
+        'unit_count': unit_count
     }
     
     # Update last activity
@@ -1020,6 +1062,7 @@ async def handle_admin_toggle_room(sid, data):
     await sio.emit('admin_room_data_updated', {
         'hex_data': aggregated_data['hex_data'],
         'lines': aggregated_data['lines'],
+        'units': aggregated_data['units'],
         'room_toggles': admin_rooms[room_id]['room_toggles'],
         'toggled_room_name': rooms[target_room_id]['name'],
         'enabled': enabled
@@ -1320,3 +1363,134 @@ async def serve_react_app(full_path: str):
         return FileResponse(build_path)
     else:
         raise HTTPException(status_code=404, detail="React app not found")
+
+@sio.on('unit_add')
+async def handle_unit_add(sid, data):
+    """Handle new unit creation"""
+    user_data = user_sessions.get(sid)
+    if not user_data or not user_data['room_id']:
+        return
+    
+    # Admin rooms don't allow direct unit additions
+    if user_data.get('is_admin_room'):
+        await sio.emit('admin_error', {
+            'message': 'Cannot add units in admin room - units are read-only here'
+        }, room=sid)
+        return
+    
+    room_id = user_data['room_id']
+    if room_id not in rooms:
+        return
+    
+    unit_data = data.get('unit')
+    if not unit_data:
+        return
+    
+    # Add unique ID to unit and created_by field
+    unit_data['id'] = str(uuid.uuid4())[:8]
+    unit_data['created_by'] = user_data['user_name']
+    unit_data['created_at'] = asyncio.get_event_loop().time()
+    
+    # Ensure units array exists in room
+    if 'units' not in rooms[room_id]:
+        rooms[room_id]['units'] = []
+    
+    # Add unit to room state
+    rooms[room_id]['units'].append(unit_data)
+    
+    # Update last activity
+    rooms[room_id]['last_activity'] = asyncio.get_event_loop().time()
+    
+    print(f"Unit added to room {room_id}: {unit_data}")
+    
+    # Broadcast to all users in the room (including sender for confirmation)
+    await sio.emit('unit_added', {
+        'unit': unit_data,
+        'user_name': user_data['user_name']
+    }, room=room_id)
+    
+    # Notify admin rooms that have this room enabled
+    await notify_admin_rooms_of_room_update(room_id)
+
+@sio.on('unit_move')
+async def handle_unit_move(sid, data):
+    """Handle unit movement"""
+    user_data = user_sessions.get(sid)
+    if not user_data or not user_data['room_id']:
+        return
+    
+    # Admin rooms don't allow direct unit movements
+    if user_data.get('is_admin_room'):
+        await sio.emit('admin_error', {
+            'message': 'Cannot move units in admin room - units are read-only here'
+        }, room=sid)
+        return
+    
+    room_id = user_data['room_id']
+    if room_id not in rooms:
+        return
+    
+    unit_id = data.get('unit_id')
+    new_hex_key = data.get('hex_key')
+    
+    # Find and update the unit
+    if 'units' not in rooms[room_id]:
+        rooms[room_id]['units'] = []
+    
+    for unit in rooms[room_id]['units']:
+        if unit['id'] == unit_id:
+            unit['hex_key'] = new_hex_key
+            unit['moved_by'] = user_data['user_name']
+            unit['moved_at'] = asyncio.get_event_loop().time()
+            break
+    
+    # Update last activity
+    rooms[room_id]['last_activity'] = asyncio.get_event_loop().time()
+    
+    # Broadcast to all users in the room except sender
+    await sio.emit('unit_moved', {
+        'unit_id': unit_id,
+        'hex_key': new_hex_key,
+        'user_name': user_data['user_name']
+    }, room=room_id, skip_sid=sid)
+    
+    # Notify admin rooms that have this room enabled
+    await notify_admin_rooms_of_room_update(room_id)
+
+@sio.on('unit_delete')
+async def handle_unit_delete(sid, data):
+    """Handle unit deletion"""
+    user_data = user_sessions.get(sid)
+    if not user_data or not user_data['room_id']:
+        return
+    
+    # Admin rooms don't allow direct unit deletions
+    if user_data.get('is_admin_room'):
+        await sio.emit('admin_error', {
+            'message': 'Cannot delete units in admin room - units are read-only here'
+        }, room=sid)
+        return
+    
+    room_id = user_data['room_id']
+    if room_id not in rooms:
+        return
+    
+    unit_id = data.get('unit_id')
+    
+    # Remove the unit
+    if 'units' not in rooms[room_id]:
+        rooms[room_id]['units'] = []
+    
+    rooms[room_id]['units'] = [unit for unit in rooms[room_id]['units'] if unit['id'] != unit_id]
+    
+    # Update last activity
+    rooms[room_id]['last_activity'] = asyncio.get_event_loop().time()
+    
+    # Broadcast to all users in the room except sender
+    await sio.emit('unit_deleted', {
+        'unit_id': unit_id,
+        'user_name': user_data['user_name']
+    }, room=room_id, skip_sid=sid)
+    
+    # Notify admin rooms that have this room enabled
+    await notify_admin_rooms_of_room_update(room_id)

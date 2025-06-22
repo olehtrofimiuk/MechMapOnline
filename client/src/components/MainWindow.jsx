@@ -234,6 +234,9 @@ const MainWindow = () => {
             socket.current.off('user_left');
             socket.current.off('hex_updated');
             socket.current.off('line_added');
+            socket.current.off('unit_added');
+            socket.current.off('unit_moved');
+            socket.current.off('unit_deleted');
             socket.current.off('hex_erased');
             socket.current.off('room_left');
 
@@ -262,6 +265,27 @@ const MainWindow = () => {
             socket.current.on('line_added', (data) => {
                 // This will be handled by HexGrid component
                 setUserActivity(`${data.user_name} drew a line`);
+                setShowActivityMessage(true);
+            });
+
+            // Listen for unit additions from other users
+            socket.current.on('unit_added', (data) => {
+                // This will be handled by HexGrid component
+                setUserActivity(`${data.user_name} added unit "${data.unit.name}"`);
+                setShowActivityMessage(true);
+            });
+
+            // Listen for unit movements from other users
+            socket.current.on('unit_moved', (data) => {
+                // This will be handled by HexGrid component
+                setUserActivity(`${data.user_name} moved a unit`);
+                setShowActivityMessage(true);
+            });
+
+            // Listen for unit deletions from other users
+            socket.current.on('unit_deleted', (data) => {
+                // This will be handled by HexGrid component
+                setUserActivity(`${data.user_name} deleted a unit`);
                 setShowActivityMessage(true);
             });
 
@@ -294,6 +318,7 @@ const MainWindow = () => {
         console.log('Admin room joined data:', data);
         console.log('Available rooms:', data.available_rooms);
         console.log('Room toggles:', data.room_toggles);
+        console.log('Admin room units:', data.units);
         
         setRoomData(data);
         setConnectedUsers(data.users || []);
@@ -315,6 +340,7 @@ const MainWindow = () => {
             socket.current.off('user_joined');
             socket.current.off('user_left');
             socket.current.off('room_left');
+            socket.current.off('admin_room_data_updated');
 
             // Listen for other users joining admin room
             socket.current.on('user_joined', (userData) => {
@@ -344,6 +370,21 @@ const MainWindow = () => {
                     });
                 }
             });
+
+            // Listen for admin room data updates (when underlying rooms change)
+            socket.current.on('admin_room_data_updated', (data) => {
+                console.log('Admin room data updated:', data);
+                setRoomData(prevData => ({
+                    ...prevData,
+                    hexData: data.hex_data,
+                    lines: data.lines,
+                    units: data.units
+                }));
+                setAdminData(prevData => ({
+                    ...prevData,
+                    roomToggles: data.room_toggles
+                }));
+            });
         }
     }, []);
 
@@ -356,6 +397,9 @@ const MainWindow = () => {
             socket.current.off('user_left');
             socket.current.off('hex_updated');
             socket.current.off('line_added');
+            socket.current.off('unit_added');
+            socket.current.off('unit_moved');
+            socket.current.off('unit_deleted');
             socket.current.off('hex_erased');
             
             // Just emit leave room event - don't disconnect socket
@@ -382,6 +426,7 @@ const MainWindow = () => {
                 roomId: roomData.roomId,
                 hexData: roomData.hexData,
                 lines: roomData.lines,
+                units: roomData.units || [],
                 savedAt: new Date().toISOString()
             };
 
@@ -448,12 +493,13 @@ const MainWindow = () => {
 
                         // Wait a moment for clearing to sync, then load new data
                         setTimeout(() => {
-                            // Update local room data with imported data
-                            setRoomData(prev => ({
-                                ...prev,
-                                hexData: importedData.hexData,
-                                lines: importedData.lines
-                            }));
+                                                    // Update local room data with imported data
+                        setRoomData(prev => ({
+                            ...prev,
+                            hexData: importedData.hexData,
+                            lines: importedData.lines,
+                            units: importedData.units || []
+                        }));
 
                             // Sync hex data with other users
                             Object.entries(importedData.hexData).forEach(([hexKey, hexInfo]) => {
@@ -471,6 +517,15 @@ const MainWindow = () => {
                                     line: line
                                 });
                             });
+
+                            // Sync units with other users
+                            if (importedData.units) {
+                                importedData.units.forEach(unit => {
+                                    socket.current.emit('unit_add', {
+                                        unit: unit
+                                    });
+                                });
+                            }
                         }, 100);
                         
                         setUserActivity(`Room data loaded from ${file.name}`);
@@ -866,6 +921,10 @@ const MainWindow = () => {
                     roomData={roomData}
                     initialHexData={roomData.hexData}
                     initialLines={roomData.lines}
+                                            initialUnits={(() => {
+                            console.log('MainWindow: Passing units to HexGrid:', roomData.units);
+                            return roomData.units || [];
+                        })()}
                     connectedUsers={connectedUsers}
                     onBackgroundToggle={handleBackgroundToggle}
                 />
