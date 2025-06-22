@@ -222,7 +222,9 @@ def load_rooms_from_file():
                 'users': {},  # Start with no active users
                 'created_at': room_data['created_at'],
                 'last_activity': room_data['last_activity'],
-                'owner': room_data.get('owner')  # Load owner info
+                'owner': room_data.get('owner'),  # Load owner info
+                'has_password': room_data.get('has_password', False),  # Backward compatibility
+                'password_hash': room_data.get('password_hash')  # Backward compatibility
             }
         
         logging.info(f"Loaded {len(rooms_data)} rooms from {ROOMS_FILE}")
@@ -312,9 +314,9 @@ def generate_room_id():
     """Generate a unique 6-character room ID"""
     return str(uuid.uuid4())[:6].upper()
 
-def create_new_room(room_name="Unnamed Room", owner=None):
+def create_new_room(room_name="Unnamed Room", owner=None, password=None):
     """Create a new room with initial state"""
-    return {
+    room_data = {
         'name': room_name,
         'hex_data': {},  # hex_key -> {fillColor, ...}
         'lines': [],     # list of line objects
@@ -322,8 +324,25 @@ def create_new_room(room_name="Unnamed Room", owner=None):
         'users': {},     # sid -> user_info
         'created_at': asyncio.get_event_loop().time(),
         'last_activity': asyncio.get_event_loop().time(),
-        'owner': owner  # username of room owner
+        'owner': owner,  # username of room owner
+        'has_password': password is not None,  # Flag to indicate if room has password
+        'password_hash': hash_password(password) if password else None  # Hashed password
     }
+    return room_data
+
+def verify_room_password(room_data: dict, password: str) -> bool:
+    """Verify password against room's password hash"""
+    if not room_data.get('has_password'):
+        return True  # No password required
+    
+    if not password:
+        return False  # Password required but none provided
+    
+    room_password_hash = room_data.get('password_hash')
+    if not room_password_hash:
+        return True  # No hash stored (shouldn't happen if has_password is True)
+    
+    return verify_password(password, room_password_hash)
 
 @sio.on("connect")
 async def handle_connect(sid, environ):
@@ -410,6 +429,7 @@ async def handle_create_room(sid, data):
     user_data = user_sessions.get(sid, {})
     user_name = data.get('user_name', 'Anonymous')
     room_name = data.get('room_name', 'Unnamed Room').strip()
+    room_password = data.get('room_password', '').strip() if data.get('room_password') else None
     is_admin_room = data.get('is_admin_room', False)
     
     # Use authenticated username if available, otherwise use provided name
@@ -523,7 +543,7 @@ async def handle_create_room(sid, data):
             room_id = generate_room_id()
         
         # Create room
-        rooms[room_id] = create_new_room(room_name, room_owner)
+        rooms[room_id] = create_new_room(room_name, room_owner, room_password)
         
         # Join user to room
         await sio.enter_room(sid, room_id)
@@ -560,6 +580,7 @@ async def handle_join_room(sid, data):
     user_data = user_sessions.get(sid, {})
     room_id = data.get('room_id', '').upper()
     user_name = data.get('user_name', 'Anonymous')
+    room_password = data.get('room_password', '')
     
     # Use authenticated username if available, otherwise use provided name
     if user_data.get('is_authenticated'):
@@ -663,6 +684,14 @@ async def handle_join_room(sid, data):
         }, room=sid)
         return
     else:
+        # Check room password before joining
+        room_data = rooms[room_id]
+        if not verify_room_password(room_data, room_password):
+            await sio.emit('room_error', {
+                'message': 'Invalid room password'
+            }, room=sid)
+            return
+        
         # Join regular room (existing logic)
         # Join user to room
         await sio.enter_room(sid, room_id)
@@ -900,7 +929,8 @@ async def handle_get_rooms(sid):
             'created_at': room_data['created_at'],
             'last_activity': room_data['last_activity'],
             'hours_since_activity': round(hours_since_activity, 1),
-            'is_active': len(room_data['users']) > 0
+            'is_active': len(room_data['users']) > 0,
+            'has_password': room_data.get('has_password', False)
         })
     
     # Sort by last activity (most recent first)

@@ -12,7 +12,13 @@ import {
   ListItem,
   ListItemText,
   ListItemIcon,
-  CircularProgress
+  CircularProgress,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  FormControlLabel,
+  Checkbox
 } from '@mui/material';
 import PersonIcon from '@mui/icons-material/Person';
 import GroupIcon from '@mui/icons-material/Group';
@@ -20,12 +26,17 @@ import AddIcon from '@mui/icons-material/Add';
 import LoginIcon from '@mui/icons-material/Login';
 import LogoutIcon from '@mui/icons-material/Logout';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import LockIcon from '@mui/icons-material/Lock';
 
 const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLogout }) => {
   const [userName, setUserName] = useState('');
   const [roomName, setRoomName] = useState('');
+  const [roomPassword, setRoomPassword] = useState('');
   const [roomId, setRoomId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [joinPassword, setJoinPassword] = useState('');
+  const [selectedRoomForJoin, setSelectedRoomForJoin] = useState(null);
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -194,7 +205,8 @@ const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLog
     
     socket.emit('create_room', {
       user_name: authState.isAuthenticated ? authState.username : userName.trim(),
-      room_name: roomName.trim() || 'Unnamed Room'
+      room_name: roomName.trim() || 'Unnamed Room',
+      room_password: roomPassword.trim() || null
     });
   };
 
@@ -220,7 +232,7 @@ const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLog
     });
   };
 
-  const handleJoinRoom = (targetRoomId = null) => {
+  const handleJoinRoom = (targetRoomId = null, password = '') => {
     if (!socket || !isConnected) {
       setError('Not connected to server. Please wait or refresh the page.');
       return;
@@ -245,8 +257,30 @@ const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLog
     
     socket.emit('join_room', {
       room_id: roomToJoin.trim().toUpperCase(),
-      user_name: authState.isAuthenticated ? authState.username : userName.trim()
+      user_name: authState.isAuthenticated ? authState.username : userName.trim(),
+      room_password: password
     });
+  };
+
+  const handleRoomClick = (room) => {
+    if (room.has_password) {
+      // Show password dialog for password-protected rooms
+      setSelectedRoomForJoin(room.room_id);
+      setJoinPassword('');
+      setShowPasswordDialog(true);
+    } else {
+      // Join directly for rooms without password
+      handleJoinRoom(room.room_id);
+    }
+  };
+
+  const handlePasswordDialogConfirm = () => {
+    if (selectedRoomForJoin) {
+      handleJoinRoom(selectedRoomForJoin, joinPassword);
+      setShowPasswordDialog(false);
+      setSelectedRoomForJoin(null);
+      setJoinPassword('');
+    }
   };
 
   const refreshRooms = () => {
@@ -292,7 +326,7 @@ const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLog
     );
     
     if (exactMatch) {
-      handleJoinRoom(exactMatch.room_id);
+      handleRoomClick(exactMatch);
       return;
     }
 
@@ -302,11 +336,11 @@ const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLog
     );
     
     if (nameMatch) {
-      handleJoinRoom(nameMatch.room_id);
+      handleRoomClick(nameMatch);
       return;
     }
 
-    // If no exact match, try to join as room ID anyway
+    // If no exact match, try to join as room ID anyway (assume no password for direct ID join)
     handleJoinRoom(searchQuery.toUpperCase());
   };
 
@@ -422,6 +456,24 @@ const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLog
             disabled={isLoading || !isConnected}
             placeholder="e.g. My Campaign Map, Dungeon Level 1..."
             helperText="Leave empty for 'Unnamed Room'"
+          />
+        </Box>
+
+        {/* Room Password Input */}
+        <Box sx={{ mb: 2 }}>
+          <TextField
+            fullWidth
+            label="Room Password (Optional)"
+            type="password"
+            value={roomPassword}
+            onChange={(e) => setRoomPassword(e.target.value)}
+            variant="outlined"
+            disabled={isLoading || !isConnected}
+            placeholder="Leave empty for public room"
+            helperText="Set a password to make the room private"
+            InputProps={{
+              startAdornment: <LockIcon sx={{ mr: 1, color: 'text.secondary' }} />
+            }}
           />
         </Box>
 
@@ -597,7 +649,7 @@ const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLog
                   <ListItem 
                     key={room.room_id}
                     button
-                    onClick={() => handleJoinRoom(room.room_id)}
+                    onClick={() => handleRoomClick(room)}
                     disabled={(!authState.isAuthenticated && !userName.trim()) || isLoading || !isConnected}
                     sx={{
                       borderLeft: room.is_active ? '4px solid #4caf50' : '4px solid #ff9800',
@@ -607,7 +659,10 @@ const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLog
                     }}
                   >
                     <ListItemIcon>
-                      <GroupIcon color={room.is_active ? 'success' : 'warning'} />
+                      {room.has_password ? 
+                        <LockIcon color={room.is_active ? 'success' : 'warning'} /> :
+                        <GroupIcon color={room.is_active ? 'success' : 'warning'} />
+                      }
                     </ListItemIcon>
                     <ListItemText 
                       primary={
@@ -626,6 +681,15 @@ const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLog
                               label="ACTIVE" 
                               size="small" 
                               color="success"
+                              sx={{ fontSize: '9px' }}
+                            />
+                          )}
+                          {room.has_password && (
+                            <Chip 
+                              label="PRIVATE" 
+                              size="small" 
+                              color="warning"
+                              icon={<LockIcon sx={{ fontSize: '10px !important' }} />}
                               sx={{ fontSize: '9px' }}
                             />
                           )}
@@ -672,6 +736,55 @@ const RoomManager = ({ socket, onRoomJoined, onAdminRoomJoined, authState, onLog
           </Box>
         )}
       </Paper>
+
+      {/* Password Dialog for Protected Rooms */}
+      <Dialog 
+        open={showPasswordDialog} 
+        onClose={() => setShowPasswordDialog(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <LockIcon />
+            Enter Room Password
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary' }}>
+            This room is password protected. Please enter the password to join.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            label="Room Password"
+            type="password"
+            value={joinPassword}
+            onChange={(e) => setJoinPassword(e.target.value)}
+            variant="outlined"
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') {
+                handlePasswordDialogConfirm();
+              }
+            }}
+            InputProps={{
+              startAdornment: <LockIcon sx={{ mr: 1, color: 'text.secondary' }} />
+            }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowPasswordDialog(false)}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handlePasswordDialogConfirm} 
+            variant="contained"
+            disabled={!joinPassword.trim()}
+          >
+            Join Room
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
