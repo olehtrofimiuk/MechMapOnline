@@ -368,12 +368,28 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
             icon={isConnected ? null : <CircularProgress size={16} />}
           />
           
-          {authState.isAuthenticated && (
+          {authState.isAuthenticated ? (
             <Chip 
-              label={`Logged in as ${authState.username}`} 
-              color="primary"
-              size="small"
+              label={`Authenticated: ${authState.username}`} 
+              color="success" 
+              size="small" 
               icon={<PersonIcon />}
+            />
+          ) : (
+            <Chip 
+              label="Anonymous User" 
+              color="default" 
+              size="small" 
+              icon={<PersonIcon />}
+            />
+          )}
+
+          {authState.isAdmin && (
+            <Chip 
+              label="Administrator" 
+              color="secondary"
+              size="small"
+              icon={<AdminPanelSettingsIcon />}
             />
           )}
         </Box>
@@ -555,14 +571,37 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
                             )}
                             {room.has_password && (
                               <Chip 
-                                label="PRIVATE" 
+                                label={<LockIcon fontSize="small" />} 
                                 size="small" 
                                 color="warning"
-                                icon={<LockIcon sx={{ fontSize: '10px !important' }} />}
+                                sx={{ fontSize: '9px' }}
+                              />
+                            )}
+                            {room.owner !== 'Anonymous' && (
+                              <Chip 
+                                label={`Owner: ${room.owner}`} 
+                                size="small" 
+                                color="primary"
+                                variant="outlined"
                                 sx={{ fontSize: '9px' }}
                               />
                             )}
                           </Box>
+                          {authState.isAdmin && (
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={(e) => handleDeleteRoom(room.room_id, room.name, e)}
+                              sx={{ 
+                                ml: 1,
+                                '&:hover': {
+                                  backgroundColor: 'rgba(244, 67, 54, 0.1)'
+                                }
+                              }}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          )}
                         </Box>
                       }
                       secondary={
