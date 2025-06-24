@@ -9,6 +9,7 @@ import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import GetAppIcon from '@mui/icons-material/GetApp';
 import PublishIcon from '@mui/icons-material/Publish';
 import HelpIcon from '@mui/icons-material/Help';
+import CameraAltIcon from '@mui/icons-material/CameraAlt';
 
 import HexGrid from './HexGrid';
 import RoomManager from './RoomManager';
@@ -17,6 +18,7 @@ import AdminPanel from './AdminPanel';
 
 const MainWindow = () => {
     const socket = useRef(null);
+    const hexGridRef = useRef(null);
     const [roomData, setRoomData] = useState(null);
     const [connectedUsers, setConnectedUsers] = useState([]);
     const [userActivity, setUserActivity] = useState('');
@@ -227,6 +229,11 @@ const MainWindow = () => {
         setRoomData(data);
         setConnectedUsers(data.users || []);
         
+        // If user is admin, also get admin data for this room
+        if (authState.isAdmin && socket.current) {
+            socket.current.emit('get_admin_data_for_room');
+        }
+        
         // Set up room-specific socket listeners
         if (socket.current) {
             // Clean up any existing listeners first
@@ -327,83 +334,54 @@ const MainWindow = () => {
                     setShowActivityMessage(true);
                 }
             });
-        }
-    }, []);
 
-    // Handle joining an admin room successfully
-    const handleAdminRoomJoined = useCallback((data) => {
-        console.log('Admin room joined data:', data);
-        console.log('Available rooms:', data.available_rooms);
-        console.log('Room toggles:', data.room_toggles);
-        console.log('Admin room units:', data.units);
-        
-        setRoomData(data);
-        setConnectedUsers(data.users || []);
-        setAdminData({
-            availableRooms: data.available_rooms || [],
-            roomToggles: data.room_toggles || {},
-            isAdminRoom: true
-        });
-        
-        console.log('Admin data set to:', {
-            availableRooms: data.available_rooms || [],
-            roomToggles: data.room_toggles || {},
-            isAdminRoom: true
-        });
-        
-        // Set up admin room-specific socket listeners
-        if (socket.current) {
-            // Clean up any existing listeners first
-            socket.current.off('user_joined');
-            socket.current.off('user_left');
-            socket.current.off('room_left');
-            socket.current.off('admin_room_data_updated');
-
-            // Listen for other users joining admin room
-            socket.current.on('user_joined', (userData) => {
-                setConnectedUsers(prev => [...prev, { name: userData.user_name, is_authenticated: userData.is_authenticated }]);
-                setUserActivity(`Admin ${userData.user_name} joined the admin room`);
-                setShowActivityMessage(true);
-            });
-
-            // Listen for users leaving admin room
-            socket.current.on('user_left', (userData) => {
-                setConnectedUsers(prev => prev.filter(user => user.name !== userData.user_name));
-                setUserActivity(`Admin ${userData.user_name} left the admin room`);
-                setShowActivityMessage(true);
-            });
-
-            // Listen for room left confirmation
-            socket.current.on('room_left', (data) => {
-                if (data.success) {
-                    console.log('Successfully left admin room');
-                    setRoomData(null);
-                    setConnectedUsers([]);
-                    setIsLeavingRoom(false);
-                    setAdminData({
-                        availableRooms: [],
-                        roomToggles: {},
-                        isAdminRoom: false
-                    });
+            // Listen for admin data updates (for admin users in any room)
+            socket.current.on('admin_data_updated', (data) => {
+                console.log('Admin data updated:', data);
+                setAdminData({
+                    availableRooms: data.available_rooms || [],
+                    roomToggles: data.room_toggles || {},
+                    isAdminRoom: false
+                });
+                
+                // Update room data with overlaid data if toggles are enabled
+                if (data.overlay_data) {
+                    setRoomData(prev => ({
+                        ...prev,
+                        hexData: data.overlay_data.hex_data,
+                        lines: data.overlay_data.lines,
+                        units: data.overlay_data.units
+                    }));
                 }
             });
 
-            // Listen for admin room data updates (when underlying rooms change)
-            socket.current.on('admin_room_data_updated', (data) => {
-                console.log('Admin room data updated:', data);
-                setRoomData(prevData => ({
-                    ...prevData,
+            // Listen for admin room overlay updates
+            socket.current.on('admin_room_overlay_updated', (data) => {
+                console.log('Admin room overlay updated:', data);
+                setRoomData(prev => ({
+                    ...prev,
                     hexData: data.hex_data,
                     lines: data.lines,
                     units: data.units
                 }));
-                setAdminData(prevData => ({
-                    ...prevData,
+                setAdminData(prev => ({
+                    ...prev,
                     roomToggles: data.room_toggles
                 }));
+                
+                if (data.toggled_room_name && data.hasOwnProperty('enabled')) {
+                    setUserActivity(`${data.toggled_room_name} visibility ${data.enabled ? 'enabled' : 'disabled'}`);
+                    setShowActivityMessage(true);
+                }
+            });
+
+            // Listen for admin errors
+            socket.current.on('admin_error', (data) => {
+                setUserActivity(`Admin Error: ${data.message}`);
+                setShowActivityMessage(true);
             });
         }
-    }, []);
+    }, [authState.isAdmin]);
 
     const handleLeaveRoom = () => {
         if (socket.current && !isLeavingRoom) {
@@ -568,6 +546,184 @@ const MainWindow = () => {
         setShowActivityMessage(true);
     }, []);
 
+    // Take Screenshot
+    const handleTakeScreenshot = useCallback(() => {
+        if (!hexGridRef.current) {
+            setUserActivity('Screenshot failed: Map not ready');
+            setShowActivityMessage(true);
+            return;
+        }
+
+        try {
+            // Get the SVG element from the HexGrid component
+            const svgElement = hexGridRef.current.getSVGElement();
+            if (!svgElement) {
+                setUserActivity('Screenshot failed: SVG element not found');
+                setShowActivityMessage(true);
+                return;
+            }
+
+            // Create a more robust image loading function
+            const loadMapImage = () => {
+                return new Promise((resolve, reject) => {
+                    const img = new Image();
+                    
+                    img.onload = () => {
+                        try {
+                            const canvas = document.createElement('canvas');
+                            const ctx = canvas.getContext('2d');
+                            canvas.width = img.naturalWidth || img.width;
+                            canvas.height = img.naturalHeight || img.height;
+                            ctx.drawImage(img, 0, 0);
+                            const dataUrl = canvas.toDataURL('image/png');
+                            resolve(dataUrl);
+                        } catch (error) {
+                            reject(error);
+                        }
+                    };
+                    
+                    img.onerror = (error) => {
+                        console.warn('Failed to load map image:', error);
+                        reject(error);
+                    };
+
+                    // Try different approaches to load the image
+                    const mapUrl = window.location.origin + '/static/Map.png';
+                    img.src = mapUrl;
+                });
+            };
+
+            // First attempt: Try to include the map background
+            loadMapImage()
+                .then((mapDataUrl) => {
+                    // Clone the SVG and embed the map image
+                    const svgClone = svgElement.cloneNode(true);
+                    
+                    // Find and replace image elements
+                    const imageElements = svgClone.querySelectorAll('image');
+                    let imageReplaced = false;
+                    
+                    imageElements.forEach(img => {
+                        const href = img.getAttribute('href') || img.getAttribute('xlink:href');
+                        if (href && href.includes('Map.png')) {
+                            img.setAttribute('href', mapDataUrl);
+                            if (img.hasAttribute('xlink:href')) {
+                                img.setAttribute('xlink:href', mapDataUrl);
+                            }
+                            imageReplaced = true;
+                        }
+                    });
+
+                    // If no image was found to replace, add it manually
+                    if (!imageReplaced && mapDataUrl) {
+                        const newImage = document.createElementNS('http://www.w3.org/2000/svg', 'image');
+                        newImage.setAttribute('href', mapDataUrl);
+                        newImage.setAttribute('x', '0');
+                        newImage.setAttribute('y', '0');
+                        newImage.setAttribute('width', svgElement.width.baseVal.value);
+                        newImage.setAttribute('height', svgElement.height.baseVal.value);
+                        svgClone.insertBefore(newImage, svgClone.firstChild);
+                    }
+
+                    return svgClone;
+                })
+                .then((svgWithMap) => {
+                    // Convert to image and download
+                    const svgData = new XMLSerializer().serializeToString(svgWithMap);
+                    const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+                    const svgUrl = URL.createObjectURL(svgBlob);
+                    
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        canvas.width = img.width || svgElement.width.baseVal.value;
+                        canvas.height = img.height || svgElement.height.baseVal.value;
+                        
+                        // Fill with white background first
+                        ctx.fillStyle = 'white';
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                        
+                        ctx.drawImage(img, 0, 0);
+
+                        canvas.toBlob((blob) => {
+                            const url = URL.createObjectURL(blob);
+                            const link = document.createElement('a');
+                            link.href = url;
+                            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                            link.download = `hexmap-screenshot-${timestamp}.png`;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            URL.revokeObjectURL(url);
+                            URL.revokeObjectURL(svgUrl);
+
+                            setUserActivity('Screenshot with map background saved successfully!');
+                            setShowActivityMessage(true);
+                        }, 'image/png');
+                    };
+                    
+                    img.onerror = () => {
+                        URL.revokeObjectURL(svgUrl);
+                        throw new Error('Failed to render SVG');
+                    };
+                    
+                    img.src = svgUrl;
+                })
+                .catch((error) => {
+                    console.log('Map image loading failed, creating screenshot without background:', error);
+                    
+                    // Fallback: Create screenshot without embedded map background
+                    const svgData = new XMLSerializer().serializeToString(svgElement);
+                    const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+                    const svgUrl = URL.createObjectURL(svgBlob);
+                    
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        canvas.width = img.width || svgElement.width.baseVal.value;
+                        canvas.height = img.height || svgElement.height.baseVal.value;
+                        
+                        // Fill with white background
+                        ctx.fillStyle = 'white';
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                        
+                        ctx.drawImage(img, 0, 0);
+
+                        canvas.toBlob((blob) => {
+                            const url = URL.createObjectURL(blob);
+                            const link = document.createElement('a');
+                            link.href = url;
+                            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                            link.download = `hexmap-screenshot-${timestamp}.png`;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            URL.revokeObjectURL(url);
+                            URL.revokeObjectURL(svgUrl);
+
+                            setUserActivity('Screenshot saved (map background visible if loaded in browser)');
+                            setShowActivityMessage(true);
+                        }, 'image/png');
+                    };
+                    
+                    img.onerror = () => {
+                        URL.revokeObjectURL(svgUrl);
+                        setUserActivity('Screenshot failed: Could not render image');
+                        setShowActivityMessage(true);
+                    };
+                    
+                    img.src = svgUrl;
+                });
+
+        } catch (error) {
+            console.error('Screenshot error:', error);
+            setUserActivity('Screenshot failed: ' + error.message);
+            setShowActivityMessage(true);
+        }
+    }, []);
+
     // Show auth state loading
     if (authState.isAuthenticated === null) {
         return (
@@ -628,7 +784,6 @@ const MainWindow = () => {
             <RoomManager 
                 socket={socket.current} 
                 onRoomJoined={handleRoomJoined}
-                onAdminRoomJoined={handleAdminRoomJoined}
                 authState={authState}
                 onLogout={handleLogout}
             />
@@ -754,6 +909,32 @@ const MainWindow = () => {
                         }}
                     >
                         Load
+                    </Button>
+
+                    <Button
+                        variant="outlined"
+                        size="small"
+                        onClick={handleTakeScreenshot}
+                        startIcon={<CameraAltIcon />}
+                        sx={{ 
+                            border: '1px solid var(--neotech-primary)',
+                            color: 'var(--neotech-primary)',
+                            background: 'rgba(0, 255, 255, 0.1)',
+                            fontFamily: "'Orbitron', monospace",
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            fontSize: '10px',
+                            minWidth: 'auto',
+                            px: 1,
+                            transition: 'all 0.3s ease',
+                            '&:hover': { 
+                                background: 'rgba(0, 255, 255, 0.2)',
+                                boxShadow: '0 0 10px rgba(0, 255, 255, 0.3)',
+                                transform: 'translateY(-1px)'
+                            }
+                        }}
+                    >
+                        Screenshot
                     </Button>
 
                     <Button
@@ -934,6 +1115,7 @@ const MainWindow = () => {
                 backgroundRepeat: 'no-repeat'
             }}>
                 <HexGrid 
+                    ref={hexGridRef}
                     socket={socket.current}
                     roomData={roomData}
                     initialHexData={roomData.hexData}
@@ -947,8 +1129,8 @@ const MainWindow = () => {
                 />
             </Box>
 
-            {/* Admin Panel */}
-            {authState.isAdmin && adminData.isAdminRoom && (
+            {/* Admin Panel - Show for any room if user is admin */}
+            {authState.isAdmin && roomData && (
                 <AdminPanel
                     roomData={roomData}
                     availableRooms={adminData.availableRooms}
@@ -958,7 +1140,7 @@ const MainWindow = () => {
             )}
 
             {/* Debug info for admin panel */}
-            {console.log('Render check - authState.isAdmin:', authState.isAdmin, 'adminData.isAdminRoom:', adminData.isAdminRoom, 'adminData:', adminData)}
+            {console.log('Render check - authState.isAdmin:', authState.isAdmin, 'roomData exists:', !!roomData, 'adminData:', adminData)}
 
             {/* Activity Notifications */}
             <Snackbar

@@ -89,18 +89,23 @@ const AdminPanel = ({ roomData, availableRooms, roomToggles, socket }) => {
     };
 
     const getColoredHexCount = () => {
-        if (!roomData?.hex_data) return 0;
-        return Object.values(roomData.hex_data).filter(hex => 
-            hex.fillColor && hex.fillColor !== 'lightgray'
+        if (!roomData?.hexData) return 0;
+        // Count colored hexes from current room only
+        return Object.values(roomData.hexData).filter(hex => 
+            hex.fillColor && hex.fillColor !== 'lightgray' && !hex.overlay
         ).length;
     };
 
     const getTotalLineCount = () => {
-        return roomData?.lines?.length || 0;
+        if (!roomData?.lines) return 0;
+        // Count lines from current room only
+        return roomData.lines.filter(line => !line.overlay).length;
     };
 
     const getTotalUnitCount = () => {
-        return roomData?.units?.length || 0;
+        if (!roomData?.units) return 0;
+        // Count units from current room only
+        return roomData.units.filter(unit => !unit.overlay).length;
     };
 
     const getActiveRoomsCount = () => {
@@ -221,13 +226,13 @@ const AdminPanel = ({ roomData, availableRooms, roomToggles, socket }) => {
             </Box>
 
             {/* Room Controls */}
-            <Typography variant="subtitle1" sx={{ 
+                            <Typography variant="subtitle1" sx={{ 
                 color: 'var(--neotech-text)',
                 mb: 2,
                 fontFamily: "'Rajdhani', monospace",
                 fontWeight: 600
             }}>
-                Battlefield Rooms
+                Room Overlays
             </Typography>
 
             {availableRooms && availableRooms.length > 0 ? (

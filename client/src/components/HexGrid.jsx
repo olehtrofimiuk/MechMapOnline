@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect, useImperativeHandle, forwardRef } from 'react';
 import Hexagon from './Hexagon';
 import Line from './Line';
 import Arrow from './Arrow';
@@ -130,7 +130,7 @@ const findHexAtPosition = (hexes, x, y, hexSize) => {
   return closestHex;
 };
 
-const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomData, initialHexData = {}, initialLines = [], initialUnits = [], onBackgroundToggle }) => {
+const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomData, initialHexData = {}, initialLines = [], initialUnits = [], onBackgroundToggle }, ref) => {
   const [hexData, setHexData] = useState(initialHexData); 
   const [selectedColor, setSelectedColor] = useState('#0000FF');
   
@@ -922,6 +922,10 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
     return visionHexes;
   }, [groupedUnits, units, layout.hexes, getHexesWithinRadius]);
 
+  useImperativeHandle(ref, () => ({
+    getSVGElement: () => svgRef.current,
+  }));
+
   return (
     <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       {/* Left Sidebar */}
@@ -1693,6 +1697,6 @@ const HexGrid = ({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomD
       />
     </Box>
   );
-};
+});
 
 export default HexGrid; 
