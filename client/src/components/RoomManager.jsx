@@ -10,6 +10,7 @@ import {
   Chip,
   List,
   ListItem,
+  ListItemButton,
   ListItemText,
   ListItemIcon,
   CircularProgress,
@@ -532,87 +533,90 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
                 {filteredRooms.map((room) => (
                   <ListItem 
                     key={room.room_id}
-                    button
-                    onClick={() => handleRoomClick(room)}
-                    disabled={(!authState.isAuthenticated && !userName.trim()) || isLoading || !isConnected}
+                    disablePadding
                     sx={{
                       borderLeft: room.is_active ? '4px solid #4caf50' : '4px solid #ff9800',
-                      '&:hover': {
-                        backgroundColor: 'rgba(0, 0, 0, 0.04)',
-                      }
                     }}
                   >
-                    <ListItemIcon>
-                      {room.has_password ? 
-                        <LockIcon color={room.is_active ? 'success' : 'warning'} /> :
-                        <GroupIcon color={room.is_active ? 'success' : 'warning'} />
-                      }
-                    </ListItemIcon>
-                    <ListItemText 
-                      primary={
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'space-between' }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
-                              {room.name}
-                            </Typography>
-                            <Chip 
-                              label={room.room_id} 
-                              size="small" 
-                              variant="outlined"
-                              sx={{ fontSize: '10px' }}
-                            />
-                            {room.is_active && (
+                    <ListItemButton
+                      onClick={() => handleRoomClick(room)}
+                      disabled={(!authState.isAuthenticated && !userName.trim()) || isLoading || !isConnected}
+                      sx={{
+                        '&:hover': {
+                          backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                        }
+                      }}
+                    >
+                      <ListItemIcon>
+                        {room.has_password ? 
+                          <LockIcon color={room.is_active ? 'success' : 'warning'} /> :
+                          <GroupIcon color={room.is_active ? 'success' : 'warning'} />
+                        }
+                      </ListItemIcon>
+                      <ListItemText 
+                        primary={
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'space-between' }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
+                                {room.name}
+                              </Typography>
                               <Chip 
-                                label="ACTIVE" 
+                                label={room.room_id} 
                                 size="small" 
-                                color="success"
-                                sx={{ fontSize: '9px' }}
-                              />
-                            )}
-                            {room.has_password && (
-                              <Chip 
-                                label={<LockIcon fontSize="small" />} 
-                                size="small" 
-                                color="warning"
-                                sx={{ fontSize: '9px' }}
-                              />
-                            )}
-                            {room.owner !== 'Anonymous' && (
-                              <Chip 
-                                label={`Owner: ${room.owner}`} 
-                                size="small" 
-                                color="primary"
                                 variant="outlined"
-                                sx={{ fontSize: '9px' }}
+                                sx={{ fontSize: '10px' }}
                               />
+                              {room.is_active && (
+                                <Chip 
+                                  label="ACTIVE" 
+                                  size="small" 
+                                  color="success"
+                                  sx={{ fontSize: '9px' }}
+                                />
+                              )}
+                              {room.has_password && (
+                                <Chip 
+                                  label={<LockIcon fontSize="small" />} 
+                                  size="small" 
+                                  color="warning"
+                                  sx={{ fontSize: '9px' }}
+                                />
+                              )}
+                              {room.owner !== 'Anonymous' && (
+                                <Chip 
+                                  label={`Owner: ${room.owner}`} 
+                                  size="small" 
+                                  color="primary"
+                                  variant="outlined"
+                                  sx={{ fontSize: '9px' }}
+                                />
+                              )}
+                            </Box>
+                            {authState.isAdmin && (
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={(e) => handleDeleteRoom(room.room_id, room.name, e)}
+                                sx={{ 
+                                  ml: 1,
+                                  '&:hover': {
+                                    backgroundColor: 'rgba(244, 67, 54, 0.1)'
+                                  }
+                                }}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
                             )}
                           </Box>
-                          {authState.isAdmin && (
-                            <IconButton
-                              size="small"
-                              color="error"
-                              onClick={(e) => handleDeleteRoom(room.room_id, room.name, e)}
-                              sx={{ 
-                                ml: 1,
-                                '&:hover': {
-                                  backgroundColor: 'rgba(244, 67, 54, 0.1)'
-                                }
-                              }}
-                            >
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          )}
-                        </Box>
-                      }
-                      secondary={
-                        <Box sx={{ mt: 0.5 }}>
-                          <Typography variant="caption" sx={{ display: 'block' }}>
+                        }
+                        secondary={
+                          <Typography variant="caption" component="span" sx={{ display: 'block', mt: 0.5 }}>
                             {room.users_count} user{room.users_count !== 1 ? 's' : ''} 
                             {room.is_active ? ' online' : ' • Last activity: ' + formatActivityTime(room.hours_since_activity)}
                           </Typography>
-                        </Box>
-                      }
-                    />
+                        }
+                      />
+                    </ListItemButton>
                   </ListItem>
                 ))}
               </List>

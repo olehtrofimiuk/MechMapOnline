@@ -19,6 +19,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
 
+# Database imports
+from db import init_database, database_exists, db_transaction
+from repository import (
+    create_user, get_user, update_user_last_login, get_all_users,
+    create_token, get_token_username, delete_token,
+    create_room, get_room, get_room_state, update_room_activity, 
+    increment_room_version, delete_room, get_all_rooms,
+    update_hex, erase_hex, add_line, delete_lines_by_hex,
+    add_unit, move_unit, delete_unit, delete_units_by_hex,
+    replace_room_state, migrate_json_to_sqlite
+)
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Room and user management
@@ -66,13 +78,21 @@ def generate_token() -> str:
 
 def get_user_from_token(token: str) -> Optional[str]:
     """Get username from token"""
+    # Try database first, fallback to in-memory for backward compatibility
+    db_username = get_token_username(token)
+    if db_username:
+        return db_username
     return user_tokens.get(token)
 
 def is_admin_user(username: str) -> bool:
     """Check if a user has admin privileges"""
-    if not username or username not in users_db:
+    if not username:
         return False
-    return users_db[username].get('is_admin', False)
+    user = get_user(username)
+    if not user:
+        # Fallback to in-memory for backward compatibility
+        return users_db.get(username, {}).get('is_admin', False)
+    return user.get('is_admin', False)
 
 def create_admin_room(room_name="Admin Room", owner=None):
     """Create a new admin room with initial state"""
@@ -97,8 +117,19 @@ def get_aggregated_room_data(admin_room_id: str) -> Dict[str, Any]:
     aggregated_units = []
     
     for room_id, toggle_data in admin_room['room_toggles'].items():
-        if toggle_data.get('enabled', False) and room_id in rooms:
-            room = rooms[room_id]
+        if toggle_data.get('enabled', False):
+            # Get room state from database
+            room_state = get_room_state(room_id)
+            room_meta = get_room(room_id)
+            if not room_meta:
+                continue
+            
+            room = {
+                'name': room_meta['name'],
+                'hex_data': room_state['hex_data'],
+                'lines': room_state['lines'],
+                'units': room_state['units']
+            }
             
             # Keep original hex keys but add room metadata for layered display
             for hex_key, hex_data in room['hex_data'].items():
@@ -265,27 +296,30 @@ async def lifespan(app: FastAPI):
     # Startup code
     logging.info("Startup event")
     ensure_data_directory()
-    load_rooms_from_file()
-    load_users_from_file()
     
-    # Start the periodic save task
-    save_task = asyncio.create_task(periodic_save())
-    logging.info("Started periodic saving (every 10 seconds)")
+    # Initialize database
+    init_database()
+    
+    # Migrate JSON data if database is new
+    if not database_exists() or not get_all_users():
+        migrate_json_to_sqlite()
+    
+    # Load in-memory caches for backward compatibility (can be removed later)
+    # This maintains compatibility with existing code that references users_db, user_tokens
+    global users_db, user_tokens
+    users_db = get_all_users()
+    
+    # Load tokens from database (for active sessions)
+    # Note: We keep user_tokens in-memory for active sessions, but persist in DB
+    
+    logging.info("Database initialized and ready")
     
     yield
     
     # Shutdown code
     logging.info("Shutdown event")
-    save_task.cancel()
-    try:
-        await save_task
-    except asyncio.CancelledError:
-        pass
-    
-    # Final save on shutdown
-    save_rooms_to_file()
-    save_users_to_file()
-    logging.info("Final save completed")
+    # Database is automatically persisted, no need for manual save
+    logging.info("Shutdown completed")
 
 
 app = FastAPI(lifespan=lifespan)
@@ -297,7 +331,9 @@ app.add_middleware(
         "http://localhost:3000", 
         "http://127.0.0.1:3000",
         "http://mechmaponline.fun",
-        "https://mechmaponline.fun"
+        "https://mechmaponline.fun",
+        "http://www.mechmaponline.fun",
+        "https://www.mechmaponline.fun"
     ],  # React dev server + production domain (without port)
     allow_credentials=True,
     allow_methods=["*"],
@@ -430,12 +466,31 @@ async def handle_create_room(sid, data):
     
     room_id = generate_room_id()
     
-    # Create regular room
-    while room_id in rooms:  # Ensure uniqueness
+    # Ensure uniqueness - check database
+    while get_room(room_id) is not None:
         room_id = generate_room_id()
     
-    # Create room
-    rooms[room_id] = create_new_room(room_name, room_owner, room_password)
+    # Hash password if provided
+    password_hash = None
+    if room_password:
+        password_hash = hash_password(room_password)
+    
+    # Create room in database
+    create_room(room_id, room_name, room_owner, password_hash)
+    
+    # Keep in-memory cache for backward compatibility
+    rooms[room_id] = {
+        'name': room_name,
+        'hex_data': {},
+        'lines': [],
+        'units': [],
+        'users': {},
+        'created_at': asyncio.get_event_loop().time(),
+        'last_activity': asyncio.get_event_loop().time(),
+        'owner': room_owner,
+        'has_password': room_password is not None,
+        'password_hash': password_hash
+    }
     
     # Join user to room
     await sio.enter_room(sid, room_id)
@@ -445,13 +500,16 @@ async def handle_create_room(sid, data):
     user_sessions[sid]['user_name'] = actual_user_name
     user_sessions[sid]['is_admin_room'] = False
     
-    # Add user to room
+    # Add user to room (in-memory for active sessions)
     rooms[room_id]['users'][sid] = {
         'name': actual_user_name,
         'joined_at': asyncio.get_event_loop().time(),
         'is_authenticated': user_data.get('is_authenticated', False),
         'username': user_data.get('username')  # None for anonymous users
     }
+    
+    # Get room state from database
+    room_state = get_room_state(room_id)
     
     print(f'User {actual_user_name} created and joined room {room_id} ({room_name})')
     
@@ -460,9 +518,9 @@ async def handle_create_room(sid, data):
         'room_name': room_name,
         'user_name': actual_user_name,
         'is_owner': room_owner is not None,
-        'hex_data': rooms[room_id]['hex_data'],
-        'lines': rooms[room_id]['lines'],
-        'units': rooms[room_id].get('units', []),
+        'hex_data': room_state['hex_data'],
+        'lines': room_state['lines'],
+        'units': room_state['units'],
         'users': list(rooms[room_id]['users'].values())
     }, room=sid)
 
@@ -480,64 +538,82 @@ async def handle_join_room(sid, data):
     else:
         actual_user_name = user_name
     
-    # Check if room exists
-    if room_id not in rooms:
+    # Check if room exists in database
+    room_meta = get_room(room_id)
+    if not room_meta:
         await sio.emit('room_error', {
             'message': 'Room not found'
         }, room=sid)
         return
-    else:
-        # Check room password before joining
-        room_data = rooms[room_id]
-        if not verify_room_password(room_data, room_password):
-            await sio.emit('room_error', {
-                'message': 'Invalid room password'
-            }, room=sid)
-            return
-        
-        # Join regular room (existing logic)
-        # Join user to room
-        await sio.enter_room(sid, room_id)
-        
-        # Update user session
-        user_sessions[sid]['room_id'] = room_id
-        user_sessions[sid]['user_name'] = actual_user_name
-        user_sessions[sid]['is_admin_room'] = False
-        
-        # Add user to room
-        rooms[room_id]['users'][sid] = {
-            'name': actual_user_name,
-            'joined_at': asyncio.get_event_loop().time(),
-            'is_authenticated': user_data.get('is_authenticated', False),
-            'username': user_data.get('username')  # None for anonymous users
-        }
-        
-        # Update last activity
-        rooms[room_id]['last_activity'] = asyncio.get_event_loop().time()
-        
-        room_owner = rooms[room_id].get('owner')
-        is_owner = room_owner and user_data.get('username') == room_owner
-        
-        print(f'User {actual_user_name} joined room {room_id} ({rooms[room_id]["name"]})')
-        
-        # Send current room state to the new user
-        await sio.emit('room_joined', {
-            'room_id': room_id,
-            'room_name': rooms[room_id]['name'],
-            'user_name': actual_user_name,
-            'is_owner': is_owner,
-            'hex_data': rooms[room_id]['hex_data'],
-            'lines': rooms[room_id]['lines'],
-            'units': rooms[room_id].get('units', []),
-            'users': list(rooms[room_id]['users'].values())
+    
+    # Check room password before joining
+    if not verify_room_password(room_meta, room_password):
+        await sio.emit('room_error', {
+            'message': 'Invalid room password'
         }, room=sid)
-        
-        # Notify other users in the room
-        await sio.emit('user_joined', {
-            'user_name': actual_user_name,
-            'is_authenticated': user_data.get('is_authenticated', False),
-            'users_count': len(rooms[room_id]['users'])
-        }, room=room_id, skip_sid=sid)
+        return
+    
+    # Get room state from database
+    room_state = get_room_state(room_id)
+    
+    # Update in-memory cache for backward compatibility
+    if room_id not in rooms:
+        rooms[room_id] = {
+            'name': room_state['name'],
+            'hex_data': room_state['hex_data'],
+            'lines': room_state['lines'],
+            'units': room_state['units'],
+            'users': {},
+            'created_at': room_state['created_at'],
+            'last_activity': room_state['last_activity'],
+            'owner': room_state['owner'],
+            'has_password': room_state['has_password'],
+            'password_hash': room_state['password_hash']
+        }
+    
+    # Join user to room
+    await sio.enter_room(sid, room_id)
+    
+    # Update user session
+    user_sessions[sid]['room_id'] = room_id
+    user_sessions[sid]['user_name'] = actual_user_name
+    user_sessions[sid]['is_admin_room'] = False
+    
+    # Add user to room (in-memory for active sessions)
+    rooms[room_id]['users'][sid] = {
+        'name': actual_user_name,
+        'joined_at': asyncio.get_event_loop().time(),
+        'is_authenticated': user_data.get('is_authenticated', False),
+        'username': user_data.get('username')  # None for anonymous users
+    }
+    
+    # Update last activity in database
+    update_room_activity(room_id)
+    rooms[room_id]['last_activity'] = asyncio.get_event_loop().time()
+    
+    room_owner = room_state.get('owner')
+    is_owner = room_owner and user_data.get('username') == room_owner
+    
+    print(f'User {actual_user_name} joined room {room_id} ({room_state["name"]})')
+    
+    # Send current room state to the new user
+    await sio.emit('room_joined', {
+        'room_id': room_id,
+        'room_name': room_state['name'],
+        'user_name': actual_user_name,
+        'is_owner': is_owner,
+        'hex_data': room_state['hex_data'],
+        'lines': room_state['lines'],
+        'units': room_state['units'],
+        'users': list(rooms[room_id]['users'].values())
+    }, room=sid)
+    
+    # Notify other users in the room
+    await sio.emit('user_joined', {
+        'user_name': actual_user_name,
+        'is_authenticated': user_data.get('is_authenticated', False),
+        'users_count': len(rooms[room_id]['users'])
+    }, room=room_id, skip_sid=sid)
 
 async def notify_admin_rooms_of_room_update(updated_room_id: str):
     """Notify all admin rooms that have this room enabled"""
@@ -585,25 +661,28 @@ async def handle_hex_update(sid, data):
         return
     
     room_id = user_data['room_id']
-    if room_id not in rooms:
-        return
-    
     hex_key = data.get('hex_key')
     fill_color = data.get('fill_color')
     
-    # Update room state
+    # Update in database
+    update_hex(room_id, hex_key, fill_color, user_data.get('user_name'))
+    update_room_activity(room_id)
+    room_version = increment_room_version(room_id)
+    
+    # Update in-memory cache
+    if room_id not in rooms:
+        rooms[room_id] = {'hex_data': {}, 'lines': [], 'units': []}
     if hex_key not in rooms[room_id]['hex_data']:
         rooms[room_id]['hex_data'][hex_key] = {}
     rooms[room_id]['hex_data'][hex_key]['fillColor'] = fill_color
-    
-    # Update last activity
     rooms[room_id]['last_activity'] = asyncio.get_event_loop().time()
     
     # Broadcast to all users in the room except sender
     await sio.emit('hex_updated', {
         'hex_key': hex_key,
         'fill_color': fill_color,
-        'user_name': user_data['user_name']
+        'user_name': user_data['user_name'],
+        'room_version': room_version
     }, room=room_id, skip_sid=sid)
     
     # Notify admin rooms that have this room enabled
@@ -624,21 +703,28 @@ async def handle_line_add(sid, data):
         return
     
     room_id = user_data['room_id']
-    if room_id not in rooms:
-        return
-    
     line_data = data.get('line')
     
-    # Add line to room state
-    rooms[room_id]['lines'].append(line_data)
+    # Generate line ID if not present
+    line_id = line_data.get('id') or f"{room_id}_line_{asyncio.get_event_loop().time()}"
+    line_data['id'] = line_id
     
-    # Update last activity
+    # Add line to database
+    add_line(room_id, line_id, line_data, user_data.get('user_name'))
+    update_room_activity(room_id)
+    room_version = increment_room_version(room_id)
+    
+    # Update in-memory cache
+    if room_id not in rooms:
+        rooms[room_id] = {'hex_data': {}, 'lines': [], 'units': []}
+    rooms[room_id]['lines'].append(line_data)
     rooms[room_id]['last_activity'] = asyncio.get_event_loop().time()
     
     # Broadcast to all users in the room except sender
     await sio.emit('line_added', {
         'line': line_data,
-        'user_name': user_data['user_name']
+        'user_name': user_data['user_name'],
+        'room_version': room_version
     }, room=room_id, skip_sid=sid)
     
     # Notify admin rooms that have this room enabled
@@ -659,38 +745,32 @@ async def handle_hex_erase(sid, data):
         return
     
     room_id = user_data['room_id']
-    if room_id not in rooms:
-        return
-    
     hex_key = data.get('hex_key')
     
-    # Reset hex color in room state
+    # Erase hex color and connected lines in database (but NOT units)
+    erase_hex(room_id, hex_key)
+    delete_lines_by_hex(room_id, hex_key)
+    update_room_activity(room_id)
+    room_version = increment_room_version(room_id)
+    
+    # Get updated state from database
+    room_state = get_room_state(room_id)
+    
+    # Update in-memory cache
+    if room_id not in rooms:
+        rooms[room_id] = {'hex_data': {}, 'lines': [], 'units': []}
     if hex_key in rooms[room_id]['hex_data']:
         rooms[room_id]['hex_data'][hex_key]['fillColor'] = 'lightgray'
-    
-    # Remove lines connected to this hex
-    rooms[room_id]['lines'] = [
-        line for line in rooms[room_id]['lines'] 
-        if line['start']['key'] != hex_key and line['end']['key'] != hex_key
-    ]
-    
-    # Remove units on this hex
-    if 'units' not in rooms[room_id]:
-        rooms[room_id]['units'] = []
-    rooms[room_id]['units'] = [
-        unit for unit in rooms[room_id]['units'] 
-        if unit['hex_key'] != hex_key
-    ]
-    
-    # Update last activity
+    rooms[room_id]['lines'] = room_state['lines']
+    # Note: units are NOT deleted when erasing hex - only colors and lines are removed
     rooms[room_id]['last_activity'] = asyncio.get_event_loop().time()
     
     # Broadcast to all users in the room except sender
     await sio.emit('hex_erased', {
         'hex_key': hex_key,
-        'lines': rooms[room_id]['lines'],
-        'units': rooms[room_id]['units'],
-        'user_name': user_data['user_name']
+        'lines': room_state['lines'],
+        'user_name': user_data['user_name'],
+        'room_version': room_version
     }, room=room_id, skip_sid=sid)
     
     # Notify admin rooms that have this room enabled
@@ -720,20 +800,27 @@ async def handle_get_rooms(sid):
     room_list = []
     current_time = asyncio.get_event_loop().time()
     
-    for room_id, room_data in rooms.items():
+    # Get rooms from database
+    db_rooms = get_all_rooms()
+    
+    for room_meta in db_rooms:
+        room_id = room_meta['room_id']
+        # Get active users count from in-memory cache
+        active_users = len(rooms.get(room_id, {}).get('users', {}))
+        
         # Calculate time since last activity
-        time_since_activity = current_time - room_data['last_activity']
+        time_since_activity = current_time - room_meta['last_activity']
         hours_since_activity = time_since_activity / 3600
         
         room_list.append({
             'room_id': room_id,
-            'name': room_data['name'],
-            'users_count': len(room_data['users']),
-            'created_at': room_data['created_at'],
-            'last_activity': room_data['last_activity'],
+            'name': room_meta['name'],
+            'users_count': active_users,
+            'created_at': room_meta['created_at'],
+            'last_activity': room_meta['last_activity'],
             'hours_since_activity': round(hours_since_activity, 1),
-            'is_active': len(room_data['users']) > 0,
-            'has_password': room_data.get('has_password', False)
+            'is_active': active_users > 0,
+            'has_password': room_meta['has_password']
         })
     
     # Sort by last activity (most recent first)
@@ -757,7 +844,8 @@ async def handle_leave_room(sid):
         # Remove user from room
         del rooms[room_id]['users'][sid]
         
-        # Update last activity
+        # Update last activity in database
+        update_room_activity(room_id)
         rooms[room_id]['last_activity'] = asyncio.get_event_loop().time()
         
         # Leave the socket.io room
@@ -769,11 +857,12 @@ async def handle_leave_room(sid):
             'users_count': len(rooms[room_id]['users'])
         }, room=room_id)
         
-        print(f'User {user_data["user_name"]} left room {room_id} ({rooms[room_id]["name"]})')
+        room_name = rooms[room_id].get('name', 'Unknown')
+        print(f'User {user_data["user_name"]} left room {room_id} ({room_name})')
         
         # Note: Room persists even if empty
         if len(rooms[room_id]['users']) == 0:
-            print(f'Room {room_id} ({rooms[room_id]["name"]}) is now empty but preserved')
+            print(f'Room {room_id} ({room_name}) is now empty but preserved')
     
     # Clear user's room association
     user_sessions[sid]['room_id'] = None
@@ -793,22 +882,28 @@ async def handle_delete_room(sid, data):
         return
     
     room_id = user_data['room_id']
-    if room_id not in rooms:
+    room_meta = get_room(room_id)
+    if not room_meta:
         await sio.emit('room_error', {
             'message': 'Room not found'
         }, room=sid)
         return
     
     # Only allow deletion if room is empty or user is the only one
-    if len(rooms[room_id]['users']) > 1:
+    active_users = len(rooms.get(room_id, {}).get('users', {}))
+    if active_users > 1:
         await sio.emit('room_error', {
             'message': 'Cannot delete room with other users present'
         }, room=sid)
         return
     
-    # Delete the room
-    room_name = rooms[room_id]['name']
-    del rooms[room_id]
+    # Delete the room from database
+    room_name = room_meta['name']
+    delete_room(room_id)
+    
+    # Remove from in-memory cache
+    if room_id in rooms:
+        del rooms[room_id]
     
     # Remove user from room
     user_sessions[sid]['room_id'] = None
@@ -841,21 +936,24 @@ async def handle_get_admin_data_for_room(sid):
     if not current_room_id or current_room_id not in rooms:
         return
     
-    # Get all other rooms for admin panel
+    # Get all other rooms for admin panel from database
     other_rooms = []
     room_toggles = {}
     
-    for room_id, room_data in rooms.items():
+    db_rooms = get_all_rooms()
+    for room_meta in db_rooms:
+        room_id = room_meta['room_id']
         if room_id != current_room_id:  # Exclude current room
-            # Calculate hex, line, and unit counts for each room
-            hex_count = sum(1 for hex_data in room_data['hex_data'].values() 
-                           if hex_data.get('fillColor') and hex_data['fillColor'] != 'lightgray')
-            line_count = len(room_data['lines'])
-            unit_count = len(room_data.get('units', []))
+            # Get room state to calculate counts
+            room_state = get_room_state(room_id)
+            hex_count = len([h for h in room_state['hex_data'].values() 
+                            if h.get('fillColor') and h.get('fillColor') != 'lightgray'])
+            line_count = len(room_state['lines'])
+            unit_count = len(room_state['units'])
             
             other_rooms.append({
                 'id': room_id,
-                'name': room_data['name'],
+                'name': room_meta['name'],
                 'hex_count': hex_count,
                 'line_count': line_count,
                 'unit_count': unit_count
@@ -864,7 +962,7 @@ async def handle_get_admin_data_for_room(sid):
             # Initialize room toggle (disabled by default)
             room_toggles[room_id] = {
                 'enabled': False,
-                'room_name': room_data['name'],
+                'room_name': room_meta['name'],
                 'hex_count': hex_count,
                 'line_count': line_count,
                 'unit_count': unit_count
@@ -1016,29 +1114,30 @@ async def register_user(user_data: UserRegister):
             raise HTTPException(status_code=400, detail="Password must be at least 4 characters long")
         
         # Check if username already exists
-        if username in users_db:
+        if get_user(username):
             raise HTTPException(status_code=409, detail="Username already exists")
         
         # Check if this is the first user (make them admin)
-        is_first_user = len(users_db) == 0
+        all_users = get_all_users()
+        is_first_user = len(all_users) == 0
         
         # Hash password and create user
         password_hash = hash_password(password)
+        create_user(username, password_hash, is_first_user)
         
+        # Update in-memory cache
         users_db[username] = {
             'username': username,
             'password_hash': password_hash,
             'created_at': asyncio.get_event_loop().time(),
             'last_login': None,
-            'is_admin': is_first_user  # First user becomes admin
+            'is_admin': is_first_user
         }
         
         # Generate token for automatic login
         token = generate_token()
-        user_tokens[token] = username
-        
-        # Save to file
-        save_users_to_file()
+        create_token(token, username)
+        user_tokens[token] = username  # Keep in-memory for backward compatibility
         
         logging.info(f"New user registered: {username}" + (" (admin)" if is_first_user else ""))
         
@@ -1061,9 +1160,10 @@ async def login_user(user_data: UserLogin):
     username = user_data.username.strip()
     password = user_data.password
     
-    # Find user (case-insensitive)
+    # Find user (case-insensitive) - check database first
+    all_users = get_all_users()
     actual_username = None
-    for stored_username in users_db.keys():
+    for stored_username in all_users.keys():
         if stored_username.lower() == username.lower():
             actual_username = stored_username
             break
@@ -1071,18 +1171,23 @@ async def login_user(user_data: UserLogin):
     if not actual_username:
         raise HTTPException(status_code=401, detail="Invalid username or password")
     
-    user = users_db[actual_username]
+    user = get_user(actual_username)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
     
     # Verify password
     if not verify_password(password, user['password_hash']):
         raise HTTPException(status_code=401, detail="Invalid username or password")
     
     # Update last login
+    update_user_last_login(actual_username)
+    users_db[actual_username] = user  # Update cache
     users_db[actual_username]['last_login'] = asyncio.get_event_loop().time()
     
     # Generate token
     token = generate_token()
-    user_tokens[token] = actual_username
+    create_token(token, actual_username)
+    user_tokens[token] = actual_username  # Keep in-memory for backward compatibility
     
     logging.info(f"User logged in: {actual_username}")
     
@@ -1105,9 +1210,11 @@ async def logout_user(request: Request):
         token = auth_header.split(' ')[1]
         username = get_user_from_token(token)
         
-        if username and token in user_tokens:
-            # Remove token
-            del user_tokens[token]
+        if username:
+            # Remove token from database and memory
+            delete_token(token)
+            if token in user_tokens:
+                del user_tokens[token]
             logging.info(f"User {username} logged out successfully")
         
         return {"message": "Logged out successfully"}
@@ -1131,19 +1238,26 @@ async def promote_to_admin(request: Request):
             raise HTTPException(status_code=401, detail="Invalid token")
         
         # Allow if requesting user is already admin OR if no admin exists yet
-        has_any_admin = any(user.get('is_admin', False) for user in users_db.values())
+        all_users = get_all_users()
+        has_any_admin = any(user.get('is_admin', False) for user in all_users.values())
         if not (is_admin_user(requesting_username) or not has_any_admin):
             raise HTTPException(status_code=403, detail="Admin privileges required")
         
         data = await request.json()
         target_username = data.get('username')
         
-        if not target_username or target_username not in users_db:
+        target_user = get_user(target_username)
+        if not target_username or not target_user:
             raise HTTPException(status_code=404, detail="User not found")
         
-        # Promote user to admin
+        # Promote user to admin (update in database)
+        with db_transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET is_admin = 1 WHERE username = ?", (target_username,))
+        
+        # Update cache
+        users_db[target_username] = target_user
         users_db[target_username]['is_admin'] = True
-        save_users_to_file()
         
         logging.info(f"User {target_username} promoted to admin by {requesting_username}")
         
@@ -1170,12 +1284,14 @@ async def verify_token(request: Request):
         token = auth_header.split(' ')[1]
         username = get_user_from_token(token)
         
-        if username and username in users_db:
-            return {
-                "valid": True, 
-                "username": username,
-                "is_admin": users_db[username].get('is_admin', False)
-            }
+        if username:
+            user = get_user(username)
+            if user:
+                return {
+                    "valid": True, 
+                    "username": username,
+                    "is_admin": user.get('is_admin', False)
+                }
         else:
             return {"valid": False, "message": "Invalid token"}
     
@@ -1270,26 +1386,27 @@ async def handle_unit_add(sid, data):
         return
     
     room_id = user_data['room_id']
-    if room_id not in rooms:
-        return
-    
     unit_data = data.get('unit')
     if not unit_data:
         return
     
     # Add unique ID to unit and created_by field
-    unit_data['id'] = str(uuid.uuid4())[:8]
+    unit_id = unit_data.get('id') or str(uuid.uuid4())[:8]
+    unit_data['id'] = unit_id
     unit_data['created_by'] = user_data['user_name']
     unit_data['created_at'] = asyncio.get_event_loop().time()
     
-    # Ensure units array exists in room
+    # Add unit to database
+    add_unit(room_id, unit_id, unit_data, user_data['user_name'])
+    update_room_activity(room_id)
+    room_version = increment_room_version(room_id)
+    
+    # Update in-memory cache
+    if room_id not in rooms:
+        rooms[room_id] = {'hex_data': {}, 'lines': [], 'units': []}
     if 'units' not in rooms[room_id]:
         rooms[room_id]['units'] = []
-    
-    # Add unit to room state
     rooms[room_id]['units'].append(unit_data)
-    
-    # Update last activity
     rooms[room_id]['last_activity'] = asyncio.get_event_loop().time()
     
     print(f"Unit added to room {room_id}: {unit_data}")
@@ -1297,7 +1414,8 @@ async def handle_unit_add(sid, data):
     # Broadcast to all users in the room (including sender for confirmation)
     await sio.emit('unit_added', {
         'unit': unit_data,
-        'user_name': user_data['user_name']
+        'user_name': user_data['user_name'],
+        'room_version': room_version
     }, room=room_id)
     
     # Notify admin rooms that have this room enabled
@@ -1318,31 +1436,33 @@ async def handle_unit_move(sid, data):
         return
     
     room_id = user_data['room_id']
-    if room_id not in rooms:
-        return
-    
     unit_id = data.get('unit_id')
     new_hex_key = data.get('hex_key')
     
-    # Find and update the unit
+    # Move unit in database
+    move_unit(room_id, unit_id, new_hex_key, user_data['user_name'])
+    update_room_activity(room_id)
+    room_version = increment_room_version(room_id)
+    
+    # Update in-memory cache
+    if room_id not in rooms:
+        rooms[room_id] = {'hex_data': {}, 'lines': [], 'units': []}
     if 'units' not in rooms[room_id]:
         rooms[room_id]['units'] = []
-    
     for unit in rooms[room_id]['units']:
         if unit['id'] == unit_id:
             unit['hex_key'] = new_hex_key
             unit['moved_by'] = user_data['user_name']
             unit['moved_at'] = asyncio.get_event_loop().time()
             break
-    
-    # Update last activity
     rooms[room_id]['last_activity'] = asyncio.get_event_loop().time()
     
     # Broadcast to all users in the room except sender
     await sio.emit('unit_moved', {
         'unit_id': unit_id,
         'hex_key': new_hex_key,
-        'user_name': user_data['user_name']
+        'user_name': user_data['user_name'],
+        'room_version': room_version
     }, room=room_id, skip_sid=sid)
     
     # Notify admin rooms that have this room enabled
@@ -1363,24 +1483,26 @@ async def handle_unit_delete(sid, data):
         return
     
     room_id = user_data['room_id']
-    if room_id not in rooms:
-        return
-    
     unit_id = data.get('unit_id')
     
-    # Remove the unit
+    # Delete unit from database
+    delete_unit(room_id, unit_id)
+    update_room_activity(room_id)
+    room_version = increment_room_version(room_id)
+    
+    # Update in-memory cache
+    if room_id not in rooms:
+        rooms[room_id] = {'hex_data': {}, 'lines': [], 'units': []}
     if 'units' not in rooms[room_id]:
         rooms[room_id]['units'] = []
-    
     rooms[room_id]['units'] = [unit for unit in rooms[room_id]['units'] if unit['id'] != unit_id]
-    
-    # Update last activity
     rooms[room_id]['last_activity'] = asyncio.get_event_loop().time()
     
     # Broadcast to all users in the room except sender
     await sio.emit('unit_deleted', {
         'unit_id': unit_id,
-        'user_name': user_data['user_name']
+        'user_name': user_data['user_name'],
+        'room_version': room_version
     }, room=room_id, skip_sid=sid)
     
     # Notify admin rooms that have this room enabled
@@ -1405,31 +1527,37 @@ async def handle_admin_delete_room(sid, data):
         }, room=sid)
         return
     
-    # Check if room exists
-    if target_room_id not in rooms:
+    # Check if room exists in database
+    room_meta = get_room(target_room_id)
+    if not room_meta:
         await sio.emit('room_error', {
             'message': 'Room not found'
         }, room=sid)
         return
     
-    room_name = rooms[target_room_id]['name']
+    room_name = room_meta['name']
+    active_users = rooms.get(target_room_id, {}).get('users', {})
     
     # Notify all users in the room that it's being deleted
-    if len(rooms[target_room_id]['users']) > 0:
+    if len(active_users) > 0:
         await sio.emit('room_deleted', {
             'message': f'This room has been deleted by an administrator',
             'force_leave': True
         }, room=target_room_id)
         
         # Remove all users from the room
-        for user_sid in list(rooms[target_room_id]['users'].keys()):
+        for user_sid in list(active_users.keys()):
             if user_sid in user_sessions:
                 user_sessions[user_sid]['room_id'] = None
                 user_sessions[user_sid]['is_admin_room'] = False
             await sio.leave_room(user_sid, target_room_id)
     
-    # Delete the room
-    del rooms[target_room_id]
+    # Delete the room from database
+    delete_room(target_room_id)
+    
+    # Remove from in-memory cache
+    if target_room_id in rooms:
+        del rooms[target_room_id]
     
     # Update all admin rooms that might have this room in their toggles
     for admin_room_id, admin_room_data in admin_rooms.items():
@@ -1460,3 +1588,63 @@ async def handle_admin_delete_room(sid, data):
         'deleted_room_id': target_room_id,
         'deleted_room_name': room_name
     }, broadcast=True)
+
+@sio.on('replace_room_state')
+async def handle_replace_room_state(sid, data):
+    """Replace entire room state (for bulk imports) - owner/admin only"""
+    user_data = user_sessions.get(sid)
+    if not user_data or not user_data['room_id']:
+        await sio.emit('room_error', {
+            'message': 'You must be in a room to replace its state'
+        }, room=sid)
+        return
+    
+    room_id = user_data['room_id']
+    room_meta = get_room(room_id)
+    if not room_meta:
+        await sio.emit('room_error', {
+            'message': 'Room not found'
+        }, room=sid)
+        return
+    
+    # Check permissions: must be owner or admin
+    is_owner = room_meta.get('owner') and user_data.get('username') == room_meta['owner']
+    is_admin = user_data.get('is_authenticated') and is_admin_user(user_data['username'])
+    
+    if not (is_owner or is_admin):
+        await sio.emit('room_error', {
+            'message': 'Only room owner or admin can replace room state'
+        }, room=sid)
+        return
+    
+    hex_data = data.get('hex_data', {})
+    lines = data.get('lines', [])
+    units = data.get('units', [])
+    
+    # Replace state in database
+    replace_room_state(room_id, hex_data, lines, units, user_data.get('user_name'))
+    update_room_activity(room_id)
+    room_version = increment_room_version(room_id)
+    
+    # Get updated state
+    room_state = get_room_state(room_id)
+    
+    # Update in-memory cache
+    if room_id not in rooms:
+        rooms[room_id] = {}
+    rooms[room_id]['hex_data'] = room_state['hex_data']
+    rooms[room_id]['lines'] = room_state['lines']
+    rooms[room_id]['units'] = room_state['units']
+    rooms[room_id]['last_activity'] = asyncio.get_event_loop().time()
+    
+    # Broadcast to all users in the room
+    await sio.emit('room_state_replaced', {
+        'hex_data': room_state['hex_data'],
+        'lines': room_state['lines'],
+        'units': room_state['units'],
+        'user_name': user_data['user_name'],
+        'room_version': room_version
+    }, room=room_id)
+    
+    # Notify admin rooms
+    await notify_admin_rooms_of_room_update(room_id)

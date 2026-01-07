@@ -17,7 +17,7 @@ const Unit = ({
   
   // Determine unit style based on state
   const unitStyle = {
-    cursor: isReadOnly ? 'default' : (isDragging ? 'grabbing' : 'grab'),
+    cursor: isReadOnly ? 'default' : 'inherit',
     opacity: isDragging ? 0.7 : 1,
     filter: isHovered ? 'brightness(1.2)' : 'none'
   };

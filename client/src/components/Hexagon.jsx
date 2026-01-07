@@ -88,7 +88,7 @@ const Hexagon = ({
       onMouseEnter={(e) => handleMouseEvent(onMouseEnter, e)}
       data-q={q}
       data-r={r}
-      style={{ cursor: 'pointer' }}
+      style={{ cursor: 'inherit' }}
     >
       <polygon 
         points={points} 

@@ -36,7 +36,7 @@ const AuthManager = ({ onAuthSuccess }) => {
 
   // Get API base URL based on environment
   const getApiBaseUrl = () => {
-    if (process.env.NODE_ENV === 'production') {
+    if (import.meta.env.MODE === 'production') {
       return window.location.origin; // Use same domain as served from
     }
     return 'http://localhost:8000'; // Development server

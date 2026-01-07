@@ -40,7 +40,7 @@ const MainWindow = () => {
 
     // Get API base URL based on environment
     const getApiBaseUrl = () => {
-        if (process.env.NODE_ENV === 'production') {
+        if (import.meta.env.MODE === 'production') {
             return window.location.origin; // Use same domain as served from
         }
         return 'http://localhost:8000'; // Development server
@@ -303,6 +303,18 @@ const MainWindow = () => {
                 setShowActivityMessage(true);
             });
 
+            // Listen for room state replacement (bulk import)
+            socket.current.on('room_state_replaced', (data) => {
+                setRoomData(prev => ({
+                    ...prev,
+                    hexData: data.hex_data,
+                    lines: data.lines,
+                    units: data.units
+                }));
+                setUserActivity(`${data.user_name} replaced room state`);
+                setShowActivityMessage(true);
+            });
+
             // Listen for room left confirmation
             socket.current.on('room_left', (data) => {
                 if (data.success) {
@@ -461,67 +473,12 @@ const MainWindow = () => {
                     
                     // Validate the imported data structure
                     if (importedData.hexData && importedData.lines) {
-                        // First, clear all existing hex data by resetting them to default
-                        Object.keys(roomData.hexData).forEach(hexKey => {
-                            if (roomData.hexData[hexKey].fillColor !== 'lightgray') {
-                                socket.current.emit('hex_update', {
-                                    hex_key: hexKey,
-                                    fill_color: 'lightgray'
-                                });
-                            }
-                        });
-
-                        // Clear all existing lines
-                        if (roomData.lines && roomData.lines.length > 0) {
-                            socket.current.emit('clear_lines');
-                        }
-
-                        // Update local room data with cleared state first
-                        setRoomData(prev => ({
-                            ...prev,
-                            hexData: Object.keys(prev.hexData).reduce((acc, key) => {
-                                acc[key] = { ...prev.hexData[key], fillColor: 'lightgray' };
-                                return acc;
-                            }, {}),
-                            lines: []
-                        }));
-
-                        // Wait a moment for clearing to sync, then load new data
-                        setTimeout(() => {
-                                                    // Update local room data with imported data
-                        setRoomData(prev => ({
-                            ...prev,
-                            hexData: importedData.hexData,
+                        // Use bulk replace instead of thousands of individual events
+                        socket.current.emit('replace_room_state', {
+                            hex_data: importedData.hexData,
                             lines: importedData.lines,
                             units: importedData.units || []
-                        }));
-
-                            // Sync hex data with other users
-                            Object.entries(importedData.hexData).forEach(([hexKey, hexInfo]) => {
-                                if (hexInfo.fillColor && hexInfo.fillColor !== 'lightgray') {
-                                    socket.current.emit('hex_update', {
-                                        hex_key: hexKey,
-                                        fill_color: hexInfo.fillColor
-                                    });
-                                }
-                            });
-
-                            // Sync lines with other users
-                            importedData.lines.forEach(line => {
-                                socket.current.emit('line_add', {
-                                    line: line
-                                });
-                            });
-
-                            // Sync units with other users
-                            if (importedData.units) {
-                                importedData.units.forEach(unit => {
-                                    socket.current.emit('unit_add', {
-                                        unit: unit
-                                    });
-                                });
-                            }
-                        }, 100);
+                        });
                         
                         setUserActivity(`Room data loaded from ${file.name}`);
                         setShowActivityMessage(true);
@@ -1109,7 +1066,7 @@ const MainWindow = () => {
             {/* Hex Grid */}
             <Box sx={{ 
                 flex: 1,
-                backgroundImage: showBackground ? 'url(/static/cockpit2.png)' : 'none',
+                backgroundImage: showBackground ? 'url(/static/cockpit.png)' : 'none',
                 backgroundSize: 'cover',
                 backgroundPosition: 'left 160px center',
                 backgroundRepeat: 'no-repeat'

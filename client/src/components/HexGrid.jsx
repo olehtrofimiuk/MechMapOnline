@@ -751,6 +751,30 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
     }
   };
 
+  const cursorByMode = useMemo(() => ({
+    select: "url('/static/cursors/cursor-select.svg') 2 2, auto",
+    color: "url('/static/cursors/cursor-paint.svg') 2 2, auto",
+    draw: "url('/static/cursors/cursor-measure.svg') 2 2, auto",
+    unit: "url('/static/cursors/cursor-unit.svg') 2 2, auto",
+    erase: "url('/static/cursors/cursor-erase.svg') 2 2, auto",
+  }), []);
+
+  const getCanvasCursor = useCallback(() => {
+    // Keep the tool cursor while mouse is held down; only show hand/grab for viewport transforms.
+    if (isPanning || isTransforming) return 'grabbing';
+    return cursorByMode[interactionMode] || 'grab';
+  }, [cursorByMode, interactionMode, isPanning, isTransforming]);
+
+  const switchToSelectAfterUnitClick = useCallback(() => {
+    if (interactionMode === 'erase' || interactionMode === 'select') return;
+    setInteractionMode('select');
+    setIsPainting(false);
+    setIsDraggingLine(false);
+    setLineStartHex(null);
+    setPreviewLine(null);
+    setHighlightedLinePath([]);
+  }, [interactionMode]);
+
   const handleUnitCreation = useCallback((unitData) => {
     createUnit(unitData);
     setShowUnitDialog(false);
@@ -825,17 +849,19 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
       console.log('Stopped dragging unit:', unit.name);
     } else if (isDraggingUnit && draggedUnit && draggedUnit.id !== unit.id) {
       // Clicking a different unit while dragging - switch to this unit
+      switchToSelectAfterUnitClick();
       setDraggedUnit(unit);
       setDraggedUnitPosition(unit.hex_key); // Start at the new unit's position
       console.log('Switched dragging to unit:', unit.name);
     } else {
       // Start dragging this unit
+      switchToSelectAfterUnitClick();
       setIsDraggingUnit(true);
       setDraggedUnit(unit);
       setDraggedUnitPosition(unit.hex_key); // Start at the unit's current position
       console.log('Started dragging unit:', unit.name, 'in mode:', interactionMode);
     }
-  }, [interactionMode, isPanning, isTransforming, deleteUnit, isDraggingUnit, draggedUnit, draggedUnitPosition, hoveredHexKey, units, moveUnit, toggleUnitInGroup, groupedUnits, clearUnitGroups]);
+  }, [interactionMode, isPanning, isTransforming, deleteUnit, isDraggingUnit, draggedUnit, draggedUnitPosition, hoveredHexKey, units, moveUnit, toggleUnitInGroup, groupedUnits, clearUnitGroups, switchToSelectAfterUnitClick]);
 
   const handleUnitMouseEnter = useCallback((unit) => {
     if (isPanning || isTransforming) return;
@@ -1344,12 +1370,7 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
                 style={{ 
                   border: 'none',
                   display: 'block',
-                  cursor: 
-                    interactionMode === 'color' && isPainting ? 'grabbing' : 
-                    interactionMode === 'erase' && isErasing ? 'grabbing' :
-                    interactionMode === 'unit' && isDraggingUnit ? 'grabbing' :
-                    interactionMode === 'erase' ? 'crosshair' :
-                    'grab'
+                  cursor: getCanvasCursor()
                 }}
                 onMouseMove={handleSvgMouseMove}
                 onMouseUp={handleSvgMouseUp}
@@ -1657,6 +1678,93 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
                           />
                         
                         {/* Mode indicator */}
+                        {cursorData?.mode === 'erase' && (
+                          <rect
+                            x={hex.centerX - 30}
+                            y={hex.centerY - 18}
+                            width={60}
+                            height={36}
+                            rx={6}
+                            fill="rgba(231, 76, 60, 0.85)"
+                            stroke="black"
+                            strokeWidth="6"
+                          />
+                        )}
+                        {cursorData?.mode === 'color' && (
+                          <path
+                            d={`M ${hex.centerX - 20} ${hex.centerY + 25}
+                               L ${hex.centerX + 25} ${hex.centerY - 20}
+                               L ${hex.centerX + 40} ${hex.centerY - 5}
+                               L ${hex.centerX - 5} ${hex.centerY + 40}
+                               Z`}
+                            fill="rgba(0, 255, 255, 0.75)"
+                            stroke="black"
+                            strokeWidth="6"
+                          />
+                        )}
+                        {cursorData?.mode === 'draw' && (
+                          <g>
+                            <line
+                              x1={hex.centerX - 40}
+                              y1={hex.centerY + 30}
+                              x2={hex.centerX + 40}
+                              y2={hex.centerY - 30}
+                              stroke="rgba(30, 144, 255, 0.9)"
+                              strokeWidth="10"
+                              strokeLinecap="round"
+                            />
+                            <circle
+                              cx={hex.centerX - 40}
+                              cy={hex.centerY + 30}
+                              r="10"
+                              fill="rgba(30, 144, 255, 0.9)"
+                              stroke="black"
+                              strokeWidth="6"
+                            />
+                            <circle
+                              cx={hex.centerX + 40}
+                              cy={hex.centerY - 30}
+                              r="10"
+                              fill="rgba(30, 144, 255, 0.9)"
+                              stroke="black"
+                              strokeWidth="6"
+                            />
+                          </g>
+                        )}
+                        {cursorData?.mode === 'unit' && (
+                          <g>
+                            <circle
+                              cx={hex.centerX}
+                              cy={hex.centerY - 18}
+                              r="14"
+                              fill="rgba(255, 255, 255, 0.85)"
+                              stroke="black"
+                              strokeWidth="6"
+                            />
+                            <path
+                              d={`M ${hex.centerX - 24} ${hex.centerY + 32}
+                                 Q ${hex.centerX} ${hex.centerY + 4} ${hex.centerX + 24} ${hex.centerY + 32}`}
+                              fill="none"
+                              stroke="rgba(255, 255, 255, 0.85)"
+                              strokeWidth="12"
+                              strokeLinecap="round"
+                            />
+                          </g>
+                        )}
+                        {cursorData?.mode === 'select' && (
+                          <path
+                            d={`M ${hex.centerX - 10} ${hex.centerY - 35}
+                               L ${hex.centerX + 30} ${hex.centerY - 5}
+                               L ${hex.centerX + 10} ${hex.centerY - 5}
+                               L ${hex.centerX + 15} ${hex.centerY + 30}
+                               L ${hex.centerX - 5} ${hex.centerY + 0}
+                               L ${hex.centerX - 15} ${hex.centerY + 15}
+                               Z`}
+                            fill="rgba(255, 255, 255, 0.85)"
+                            stroke="black"
+                            strokeWidth="6"
+                          />
+                        )}
         
                         
                         {/* Username label */}
