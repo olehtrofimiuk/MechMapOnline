@@ -1107,10 +1107,7 @@ const MainWindow = () => {
                     roomData={roomData}
                     initialHexData={roomData.hexData}
                     initialLines={roomData.lines}
-                                            initialUnits={(() => {
-                            console.log('MainWindow: Passing units to HexGrid:', roomData.units);
-                            return roomData.units || [];
-                        })()}
+                                            initialUnits={roomData.units || []}
                     connectedUsers={connectedUsers}
                     onBackgroundToggle={handleBackgroundToggle}
                 />
@@ -1126,8 +1123,6 @@ const MainWindow = () => {
                 />
             )}
 
-            {/* Debug info for admin panel */}
-            {console.log('Render check - authState.isAdmin:', authState.isAdmin, 'roomData exists:', !!roomData, 'adminData:', adminData)}
 
             {/* Activity Notifications */}
             <Snackbar

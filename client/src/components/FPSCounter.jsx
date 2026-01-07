@@ -47,10 +47,10 @@ const FPSCounter = () => {
     };
   }, []);
 
-  // Calculate min/max for scaling the graph
-  const minFps = fpsHistory.length > 0 ? Math.min(...fpsHistory) : 0;
-  const maxFps = fpsHistory.length > 0 ? Math.max(...fpsHistory) : 60;
-  const range = maxFps - minFps || 1;
+  // Fixed Y-axis scale: 0 to 65 FPS
+  const minFps = 0;
+  const maxFps = 65;
+  const range = maxFps - minFps;
 
   // Determine color based on FPS
   const getFpsColor = (currentFps) => {
