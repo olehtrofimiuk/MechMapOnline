@@ -11,6 +11,11 @@ import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Switch from '@mui/material/Switch';
 import FormControlLabel from '@mui/material/FormControlLabel';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import Button from '@mui/material/Button';
 import BrushIcon from '@mui/icons-material/Brush';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
@@ -196,6 +201,8 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
   const [draggedUnit, setDraggedUnit] = useState(null);
   const [draggedUnitPosition, setDraggedUnitPosition] = useState(null); // Track current visual position during drag
   const [hoveredUnitId, setHoveredUnitId] = useState(null);
+  const [showDeleteUnitDialog, setShowDeleteUnitDialog] = useState(false);
+  const [unitToDelete, setUnitToDelete] = useState(null);
 
   // Unit Grouping State
   const [groupedUnits, setGroupedUnits] = useState(new Set()); // Set of unit IDs that are grouped
@@ -325,8 +332,7 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
       }));
       // Update lines
       setLines(data.lines);
-      // Update units
-      setUnits(data.units);
+      // Note: Units are NOT deleted when erasing hex - only colors and lines are removed
     };
 
     // Listen for other users' cursor movements
@@ -689,8 +695,7 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
     setLines(prevLines => prevLines.filter(line => 
         line.start.key !== hexKey && line.end.key !== hexKey
     ));
-    // Remove any units on this hex
-    setUnits(prevUnits => prevUnits.filter(unit => unit.hex_key !== hexKey));
+    // Note: Units are NOT deleted when erasing hex - only colors and lines are removed
     // Reset hex color to default (lightgray) which will make it transparent
     setHexData(prevData => ({
         ...prevData,
@@ -1053,6 +1058,19 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
     setUnitCreationHex(null);
   }, [createUnit]);
 
+  const handleDeleteUnitConfirm = useCallback(() => {
+    if (unitToDelete) {
+      deleteUnit(unitToDelete.id);
+      setShowDeleteUnitDialog(false);
+      setUnitToDelete(null);
+    }
+  }, [unitToDelete, deleteUnit]);
+
+  const handleDeleteUnitCancel = useCallback(() => {
+    setShowDeleteUnitDialog(false);
+    setUnitToDelete(null);
+  }, []);
+
   const handleUnitClick = useCallback((unit, event) => {
     if (event.button !== 0) return; // Only left mouse button
     if (isPanning || isTransforming) return;
@@ -1074,7 +1092,9 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
     
     // Toggle logic for unit dragging
     if (interactionMode === 'erase') {
-      deleteUnit(unit.id);
+      // Show confirmation dialog before deleting unit
+      setUnitToDelete(unit);
+      setShowDeleteUnitDialog(true);
     } else if (isDraggingUnit && draggedUnit && draggedUnit.id === unit.id) {
       // Clicking the same unit that's being dragged - stop dragging at current visual position
       const targetHexKey = draggedUnitPosition || hoveredHexKey;
@@ -1534,7 +1554,7 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
               color: 'var(--neotech-error)',
               fontFamily: "'Rajdhani', monospace"
             }}>
-              Drag to erase lines, colors, and units
+              Drag to erase lines and colors. Click unit to delete (with confirmation).
             </Typography>
           )}
         </Box>
@@ -2084,6 +2104,82 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
         hexKey={unitCreationHex?.key}
         initialColor={selectedColor}
       />
+
+      {/* Unit Deletion Confirmation Dialog */}
+      <Dialog 
+        open={showDeleteUnitDialog} 
+        onClose={handleDeleteUnitCancel}
+        maxWidth="sm"
+        PaperProps={{
+          sx: {
+            background: 'linear-gradient(135deg, rgba(0, 17, 34, 0.95), rgba(0, 8, 17, 0.98))',
+            border: '1px solid var(--neotech-border)',
+            boxShadow: '0 0 20px rgba(255, 51, 102, 0.3)',
+            backdropFilter: 'blur(10px)'
+          }
+        }}
+      >
+        <DialogTitle sx={{
+          color: 'var(--neotech-error)',
+          fontFamily: "'Orbitron', monospace",
+          textAlign: 'center',
+          borderBottom: '1px solid var(--neotech-border)',
+          background: 'linear-gradient(90deg, transparent, rgba(255, 51, 102, 0.1), transparent)'
+        }}>
+          Delete Unit?
+        </DialogTitle>
+        <DialogContent sx={{ p: 3 }}>
+          <Typography sx={{
+            color: 'var(--neotech-text-secondary)',
+            fontFamily: "'Rajdhani', monospace",
+            fontSize: '14px'
+          }}>
+            Are you sure you want to delete unit <strong style={{ color: 'var(--neotech-primary)' }}>"{unitToDelete?.name}"</strong>?
+            <br />
+            <br />
+            This action cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ 
+          p: 2, 
+          borderTop: '1px solid var(--neotech-border)',
+          background: 'linear-gradient(90deg, transparent, rgba(255, 51, 102, 0.05), transparent)'
+        }}>
+          <Button 
+            onClick={handleDeleteUnitCancel}
+            sx={{
+              color: 'var(--neotech-text-secondary)',
+              borderColor: 'var(--neotech-border)',
+              fontFamily: "'Rajdhani', monospace",
+              fontWeight: 600,
+              '&:hover': {
+                borderColor: 'var(--neotech-primary)',
+                backgroundColor: 'rgba(0, 255, 255, 0.1)'
+              }
+            }}
+            variant="outlined"
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleDeleteUnitConfirm}
+            sx={{
+              background: 'linear-gradient(135deg, rgba(255, 51, 102, 0.3), rgba(204, 0, 51, 0.3))',
+              color: 'var(--neotech-error)',
+              fontFamily: "'Rajdhani', monospace",
+              fontWeight: 600,
+              border: '1px solid var(--neotech-error)',
+              '&:hover': {
+                background: 'linear-gradient(135deg, rgba(255, 51, 102, 0.4), rgba(204, 0, 51, 0.4))',
+                boxShadow: '0 0 10px rgba(255, 51, 102, 0.3)'
+              }
+            }}
+            variant="contained"
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 });
