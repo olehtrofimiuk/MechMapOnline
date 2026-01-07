@@ -10,11 +10,13 @@ import GetAppIcon from '@mui/icons-material/GetApp';
 import PublishIcon from '@mui/icons-material/Publish';
 import HelpIcon from '@mui/icons-material/Help';
 import CameraAltIcon from '@mui/icons-material/CameraAlt';
+import SpeedIcon from '@mui/icons-material/Speed';
 
 import HexGrid from './HexGrid';
 import RoomManager from './RoomManager';
 import AuthManager from './AuthManager';
 import AdminPanel from './AdminPanel';
+import FPSCounter from './FPSCounter';
 
 const MainWindow = () => {
     const socket = useRef(null);
@@ -32,6 +34,7 @@ const MainWindow = () => {
         isAdmin: false
     });
     const [showBackground, setShowBackground] = useState(true);
+    const [showFpsCounter, setShowFpsCounter] = useState(false);
     const [adminData, setAdminData] = useState({
         availableRooms: [],
         roomToggles: {},
@@ -920,6 +923,33 @@ const MainWindow = () => {
                     >
                         Help
                     </Button>
+
+                    <Button
+                        variant="outlined"
+                        size="small"
+                        onClick={() => setShowFpsCounter(!showFpsCounter)}
+                        startIcon={<SpeedIcon />}
+                        sx={{ 
+                            border: showFpsCounter ? '1px solid var(--neotech-success)' : '1px solid var(--neotech-border)',
+                            color: showFpsCounter ? 'var(--neotech-success)' : 'var(--neotech-text-secondary)',
+                            background: showFpsCounter ? 'rgba(0, 255, 136, 0.2)' : 'rgba(0, 17, 34, 0.8)',
+                            fontFamily: "'Orbitron', monospace",
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            fontSize: '10px',
+                            minWidth: 'auto',
+                            px: 1,
+                            transition: 'all 0.3s ease',
+                            '&:hover': { 
+                                background: showFpsCounter ? 'rgba(0, 255, 136, 0.3)' : 'rgba(0, 255, 255, 0.2)',
+                                borderColor: showFpsCounter ? 'var(--neotech-success)' : 'var(--neotech-primary)',
+                                color: showFpsCounter ? 'var(--neotech-success)' : 'var(--neotech-primary)',
+                                boxShadow: showFpsCounter ? '0 0 10px rgba(0, 255, 136, 0.3)' : 'var(--neotech-glow-small)'
+                            }
+                        }}
+                    >
+                        FPS
+                    </Button>
                 </Box>
                 
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative', zIndex: 1 }}>
@@ -1114,6 +1144,9 @@ const MainWindow = () => {
                     {userActivity}
                 </Alert>
             </Snackbar>
+
+            {/* FPS Counter Overlay */}
+            {showFpsCounter && <FPSCounter />}
         </Box>
     );
 }
