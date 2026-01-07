@@ -48,6 +48,7 @@ const MainWindow = () => {
         }
         return 'http://localhost:8000'; // Development server
     };
+    const apiBaseUrl = getApiBaseUrl();
 
     // Check for existing authentication on component mount
     useEffect(() => {
@@ -1110,6 +1111,7 @@ const MainWindow = () => {
                                             initialUnits={roomData.units || []}
                     connectedUsers={connectedUsers}
                     onBackgroundToggle={handleBackgroundToggle}
+                    apiBaseUrl={apiBaseUrl}
                 />
             </Box>
 

@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 
 
 from fastapi import FastAPI, Request, HTTPException, Depends
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,7 +29,8 @@ from repository import (
     increment_room_version, delete_room, get_all_rooms,
     update_hex, erase_hex, add_line, delete_lines_by_hex,
     add_unit, move_unit, delete_unit, delete_units_by_hex,
-    replace_room_state, migrate_json_to_sqlite
+    replace_room_state, migrate_json_to_sqlite,
+    update_unit, reparent_unit, get_unit
 )
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -43,6 +45,10 @@ admin_rooms: Dict[str, Dict[str, Any]] = {}  # admin_room_id -> admin_room_data
 # File paths
 ROOMS_FILE = "room_data/rooms.json"
 USERS_FILE = "room_data/users.json"
+
+# Unit icons directory (repo-local assets)
+UNIT_ICONS_DIR = Path(__file__).resolve().parent.parent / "assets"
+UNIT_ICONS_MOUNT_PATH = "/unit-icons"
 
 # Pydantic models for API
 class UserRegister(BaseModel):
@@ -265,6 +271,25 @@ def load_rooms_from_file():
     except Exception as e:
         logging.error(f"Error loading rooms from file: {e}")
 
+def list_unit_icons() -> list[str]:
+    """List all available unit icon paths (relative to UNIT_ICONS_DIR)."""
+    if not UNIT_ICONS_DIR.exists():
+        raise FileNotFoundError(f"Unit icons directory not found: {UNIT_ICONS_DIR}")
+    if not UNIT_ICONS_DIR.is_dir():
+        raise NotADirectoryError(f"Unit icons path is not a directory: {UNIT_ICONS_DIR}")
+
+    icon_paths: list[str] = []
+    for root, _, files in os.walk(UNIT_ICONS_DIR):
+        for file_name in files:
+            if not file_name.lower().endswith(".png"):
+                continue
+            full_path = Path(root) / file_name
+            rel_path = full_path.relative_to(UNIT_ICONS_DIR).as_posix()
+            icon_paths.append(rel_path)
+
+    icon_paths.sort()
+    return icon_paths
+
 def load_users_from_file():
     """Load users database from JSON file on startup"""
     try:
@@ -323,6 +348,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+@app.get("/api/unit-icons")
+async def get_unit_icons():
+    """Return available unit icon paths for client-side search."""
+    try:
+        icons = list_unit_icons()
+        return JSONResponse(content={"icons": icons})
+    except (FileNotFoundError, NotADirectoryError) as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Add CORS middleware
 app.add_middleware(
@@ -1362,6 +1396,16 @@ try:
 except RuntimeError as e:
     logging.error(f"Error mounting static files: {e}")
 
+# Unit icons mount (repo assets) - avoid conflict with React build /assets
+try:
+    if UNIT_ICONS_DIR.exists() and UNIT_ICONS_DIR.is_dir():
+        app.mount(UNIT_ICONS_MOUNT_PATH, StaticFiles(directory=str(UNIT_ICONS_DIR)), name="unit-icons")
+        logging.info(f"Serving unit icons from: {UNIT_ICONS_DIR} at {UNIT_ICONS_MOUNT_PATH}")
+    else:
+        logging.warning(f"Unit icons directory missing or invalid: {UNIT_ICONS_DIR}")
+except RuntimeError as e:
+    logging.error(f"Error mounting unit icons: {e}")
+
 # Catch-all route for React app (must be at the end)
 @app.get("/{full_path:path}")
 async def serve_react_app(full_path: str, request: Request):
@@ -1438,6 +1482,97 @@ async def handle_unit_add(sid, data):
     # Notify admin rooms that have this room enabled
     await notify_admin_rooms_of_room_update(room_id)
 
+@sio.on('unit_update')
+async def handle_unit_update(sid, data):
+    """Handle unit field updates (name/icon/tint/description)."""
+    user_data = user_sessions.get(sid)
+    if not user_data or not user_data['room_id']:
+        return
+    if user_data.get('is_admin_room'):
+        await sio.emit('admin_error', {
+            'message': 'Cannot update units in admin room - units are read-only here'
+        }, room=sid)
+        return
+
+    room_id = user_data['room_id']
+    unit_id = data.get('unit_id')
+    patch = data.get('patch')
+    if not unit_id or not isinstance(patch, dict):
+        return
+
+    update_unit(room_id, unit_id, patch, user_data['user_name'])
+    update_room_activity(room_id)
+    room_version = increment_room_version(room_id)
+
+    updated = get_unit(room_id, unit_id)
+    if not updated:
+        return
+
+    # Update in-memory cache
+    if room_id not in rooms:
+        rooms[room_id] = {'hex_data': {}, 'lines': [], 'units': []}
+    if 'units' not in rooms[room_id]:
+        rooms[room_id]['units'] = []
+    for idx, unit in enumerate(rooms[room_id]['units']):
+        if unit.get('id') == unit_id:
+            rooms[room_id]['units'][idx] = {**unit, **updated}
+            break
+    rooms[room_id]['last_activity'] = asyncio.get_event_loop().time()
+
+    await sio.emit('unit_updated', {
+        'unit': updated,
+        'user_name': user_data['user_name'],
+        'room_version': room_version
+    }, room=room_id)
+
+    await notify_admin_rooms_of_room_update(room_id)
+
+@sio.on('unit_reparent')
+async def handle_unit_reparent(sid, data):
+    """Attach/detach a unit to/from a parent unit."""
+    user_data = user_sessions.get(sid)
+    if not user_data or not user_data['room_id']:
+        return
+    if user_data.get('is_admin_room'):
+        await sio.emit('admin_error', {
+            'message': 'Cannot update units in admin room - units are read-only here'
+        }, room=sid)
+        return
+
+    room_id = user_data['room_id']
+    unit_id = data.get('unit_id')
+    parent_unit_id = data.get('parent_unit_id')
+    hex_key = data.get('hex_key')
+    if not unit_id:
+        return
+
+    reparent_unit(room_id, unit_id, parent_unit_id, hex_key, user_data['user_name'])
+    update_room_activity(room_id)
+    room_version = increment_room_version(room_id)
+
+    updated = get_unit(room_id, unit_id)
+    if not updated:
+        return
+
+    # Update in-memory cache
+    if room_id not in rooms:
+        rooms[room_id] = {'hex_data': {}, 'lines': [], 'units': []}
+    if 'units' not in rooms[room_id]:
+        rooms[room_id]['units'] = []
+    for idx, unit in enumerate(rooms[room_id]['units']):
+        if unit.get('id') == unit_id:
+            rooms[room_id]['units'][idx] = {**unit, **updated}
+            break
+    rooms[room_id]['last_activity'] = asyncio.get_event_loop().time()
+
+    await sio.emit('unit_updated', {
+        'unit': updated,
+        'user_name': user_data['user_name'],
+        'room_version': room_version
+    }, room=room_id)
+
+    await notify_admin_rooms_of_room_update(room_id)
+
 @sio.on('unit_move')
 async def handle_unit_move(sid, data):
     """Handle unit movement"""
@@ -1472,6 +1607,11 @@ async def handle_unit_move(sid, data):
             unit['moved_by'] = user_data['user_name']
             unit['moved_at'] = asyncio.get_event_loop().time()
             break
+    for unit in rooms[room_id]['units']:
+        if unit.get('parent_unit_id') == unit_id:
+            unit['hex_key'] = new_hex_key
+            unit['moved_by'] = user_data['user_name']
+            unit['moved_at'] = asyncio.get_event_loop().time()
     rooms[room_id]['last_activity'] = asyncio.get_event_loop().time()
     
     # Broadcast to all users in the room except sender

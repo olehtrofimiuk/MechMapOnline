@@ -11,16 +11,23 @@ import {
   Divider
 } from '@mui/material';
 import { HexColorPicker } from 'react-colorful';
+import IconPicker from './IconPicker';
+import { buildUnitIconUrl, getTintedIconDataUrl } from '../utils/unitIcons';
 
 const UnitCreationDialog = ({ 
   open, 
   onClose, 
   onConfirm, 
   hexKey,
-  initialColor = '#FF0000'
+  initialColor,
+  apiBaseUrl,
+  parentUnitId
 }) => {
   const [unitName, setUnitName] = useState('');
   const [unitColor, setUnitColor] = useState(initialColor);
+  const [unitIconPath, setUnitIconPath] = useState('');
+  const [unitDescription, setUnitDescription] = useState('');
+  const [iconPreviewHref, setIconPreviewHref] = useState('');
 
   // Preset colors for quick selection
   const presetColors = [
@@ -43,14 +50,42 @@ const UnitCreationDialog = ({
     if (open) {
       setUnitName('');
       setUnitColor(initialColor);
+      setUnitIconPath('');
+      setUnitDescription('');
+      setIconPreviewHref('');
     }
   }, [open, initialColor]);
 
+  useEffect(() => {
+    let isCancelled = false;
+    if (!open) return () => { isCancelled = true; };
+    if (!apiBaseUrl || !unitIconPath) {
+      setIconPreviewHref('');
+      return () => { isCancelled = true; };
+    }
+    const iconUrl = buildUnitIconUrl(apiBaseUrl, unitIconPath);
+    getTintedIconDataUrl(iconUrl, unitColor)
+      .then((href) => {
+        if (isCancelled) return;
+        setIconPreviewHref(href);
+      })
+      .catch(() => {
+        if (isCancelled) return;
+        setIconPreviewHref(iconUrl);
+      });
+    return () => { isCancelled = true; };
+  }, [apiBaseUrl, open, unitColor, unitIconPath]);
+
   const handleConfirm = () => {
-    if (unitName.trim()) {
+    if (unitName.trim() && unitIconPath) {
       onConfirm({
         name: unitName.trim(),
+        // Backward compatibility: keep `color` populated even if it is primarily used as tint.
         color: unitColor,
+        tint_color: unitColor,
+        icon_path: unitIconPath,
+        description: unitDescription.trim(),
+        parent_unit_id: parentUnitId || null,
         hex_key: hexKey
       });
       onClose();
@@ -85,7 +120,7 @@ const UnitCreationDialog = ({
         borderBottom: '1px solid var(--neotech-border)',
         background: 'linear-gradient(90deg, transparent, rgba(0, 255, 255, 0.1), transparent)'
       }}>
-        Create New Unit
+        {parentUnitId ? 'Create New Force' : 'Create New Unit'}
       </DialogTitle>
       
       <DialogContent sx={{ p: 3 }}>
@@ -137,6 +172,50 @@ const UnitCreationDialog = ({
 
           <Divider sx={{ backgroundColor: 'var(--neotech-border)', opacity: 0.5 }} />
 
+          {/* Icon Selection */}
+          <Box>
+            <Typography 
+              variant="subtitle1" 
+              sx={{ 
+                mb: 1.5,
+                color: 'var(--neotech-text-secondary)',
+                fontFamily: "'Rajdhani', monospace",
+                fontWeight: 600
+              }}
+            >
+              Unit Icon
+            </Typography>
+
+            {unitIconPath && apiBaseUrl && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1.5 }}>
+                <Box
+                  component="img"
+                  src={iconPreviewHref || buildUnitIconUrl(apiBaseUrl, unitIconPath)}
+                  alt={unitIconPath}
+                  sx={{
+                    width: 110,
+                    height: 110,
+                    background: 'rgba(0,0,0,0.25)',
+                    borderRadius: 1,
+                    border: '1px solid var(--neotech-border)'
+                  }}
+                />
+                <Typography sx={{ color: 'var(--neotech-text-secondary)', fontFamily: "'Rajdhani', monospace" }}>
+                  {unitIconPath}
+                </Typography>
+              </Box>
+            )}
+
+            <IconPicker
+              apiBaseUrl={apiBaseUrl}
+              open={open}
+              value={unitIconPath}
+              onChange={setUnitIconPath}
+            />
+          </Box>
+
+          <Divider sx={{ backgroundColor: 'var(--neotech-border)', opacity: 0.5 }} />
+
           {/* Color Selection */}
           <Box>
             <Typography 
@@ -148,7 +227,7 @@ const UnitCreationDialog = ({
                 fontWeight: 600
               }}
             >
-              Unit Color
+              Icon Tint Color
             </Typography>
             
             {/* Current Color Display */}
@@ -222,6 +301,53 @@ const UnitCreationDialog = ({
               />
             </Box>
           </Box>
+
+          <Divider sx={{ backgroundColor: 'var(--neotech-border)', opacity: 0.5 }} />
+
+          {/* Description */}
+          <Box>
+            <Typography 
+              variant="subtitle1" 
+              sx={{ 
+                mb: 1,
+                color: 'var(--neotech-text-secondary)',
+                fontFamily: "'Rajdhani', monospace",
+                fontWeight: 600
+              }}
+            >
+              Description
+            </Typography>
+            <TextField
+              fullWidth
+              value={unitDescription}
+              onChange={(e) => setUnitDescription(e.target.value)}
+              placeholder="Optional notes..."
+              multiline
+              minRows={3}
+              variant="outlined"
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  color: 'var(--neotech-text-primary)',
+                  backgroundColor: 'rgba(0, 17, 34, 0.8)',
+                  fontFamily: "'Rajdhani', monospace",
+                  '& fieldset': {
+                    borderColor: 'var(--neotech-border)',
+                  },
+                  '&:hover fieldset': {
+                    borderColor: 'var(--neotech-primary)',
+                  },
+                  '&.Mui-focused fieldset': {
+                    borderColor: 'var(--neotech-primary)',
+                    boxShadow: 'var(--neotech-glow-small)'
+                  },
+                },
+                '& .MuiInputBase-input::placeholder': {
+                  color: 'var(--neotech-text-secondary)',
+                  opacity: 0.7
+                }
+              }}
+            />
+          </Box>
         </Box>
       </DialogContent>
       
@@ -248,7 +374,7 @@ const UnitCreationDialog = ({
         </Button>
         <Button 
           onClick={handleConfirm}
-          disabled={!unitName.trim()}
+          disabled={!unitName.trim() || !unitIconPath}
           sx={{
             background: 'linear-gradient(135deg, rgba(0, 255, 255, 0.3), rgba(0, 153, 204, 0.3))',
             color: 'var(--neotech-primary)',
@@ -267,7 +393,7 @@ const UnitCreationDialog = ({
           }}
           variant="contained"
         >
-          Create Unit
+          {parentUnitId ? 'Create Force' : 'Create Unit'}
         </Button>
       </DialogActions>
     </Dialog>

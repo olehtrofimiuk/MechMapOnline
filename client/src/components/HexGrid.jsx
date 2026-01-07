@@ -3,6 +3,7 @@ import Line from './Line';
 import Arrow from './Arrow';
 import Unit from './Unit';
 import UnitCreationDialog from './UnitCreationDialog';
+import UnitDetailsDialog from './UnitDetailsDialog';
 import { HexColorPicker } from 'react-colorful';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import Box from '@mui/material/Box';
@@ -134,7 +135,7 @@ const findHexAtPosition = (hexes, x, y, hexSize) => {
   return closestHex;
 };
 
-const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomData, initialHexData = {}, initialLines = [], initialUnits = [], onBackgroundToggle }, ref) => {
+const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, socket, roomData, initialHexData = {}, initialLines = [], initialUnits = [], onBackgroundToggle, apiBaseUrl }, ref) => {
   const [hexData, setHexData] = useState(initialHexData); 
   const [selectedColor, setSelectedColor] = useState('#0000FF');
   
@@ -203,6 +204,9 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
   const [hoveredUnitId, setHoveredUnitId] = useState(null);
   const [showDeleteUnitDialog, setShowDeleteUnitDialog] = useState(false);
   const [unitToDelete, setUnitToDelete] = useState(null);
+  const [showUnitDetailsDialog, setShowUnitDetailsDialog] = useState(false);
+  const [selectedUnitId, setSelectedUnitId] = useState(null);
+  const [forceParentUnitId, setForceParentUnitId] = useState(null);
 
   // Unit Grouping State
   const [groupedUnits, setGroupedUnits] = useState(new Set()); // Set of unit IDs that are grouped
@@ -323,6 +327,18 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
       setUnits(prevUnits => prevUnits.filter(unit => unit.id !== data.unit_id));
     };
 
+    const handleUnitUpdated = (data) => {
+      const updated = data.unit;
+      if (!updated || !updated.id) return;
+      setUnits(prevUnits => {
+        const idx = prevUnits.findIndex(u => u.id === updated.id);
+        if (idx === -1) return [...prevUnits, updated];
+        const copy = [...prevUnits];
+        copy[idx] = { ...copy[idx], ...updated };
+        return copy;
+      });
+    };
+
     // Listen for hex erasing from other users
     const handleHexErased = (data) => {
       // Update hex color
@@ -378,6 +394,7 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
     socket.on('unit_added', handleUnitAdded);
     socket.on('unit_moved', handleUnitMoved);
     socket.on('unit_deleted', handleUnitDeleted);
+    socket.on('unit_updated', handleUnitUpdated);
     socket.on('hex_erased', handleHexErased);
     socket.on('cursor_moved', handleCursorMoved);
     socket.on('user_left', handleUserLeft);
@@ -389,6 +406,7 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
       socket.off('unit_added', handleUnitAdded);
       socket.off('unit_moved', handleUnitMoved);
       socket.off('unit_deleted', handleUnitDeleted);
+      socket.off('unit_updated', handleUnitUpdated);
       socket.off('hex_erased', handleHexErased);
       socket.off('cursor_moved', handleCursorMoved);
       socket.off('user_left', handleUserLeft);
@@ -434,6 +452,7 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
       if (isDraggingUnit) {
         setIsDraggingUnit(false);
         setDraggedUnit(null);
+        setDraggedUnitPosition(null);
         event.preventDefault();
       }
     };
@@ -720,6 +739,29 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
     // Note: Don't add to local state here - wait for server confirmation via unit_added event
   }, [socket, roomData]);
 
+  const updateUnit = useCallback((unitId, patch) => {
+    if (!socket || !roomData) return;
+    socket.emit('unit_update', { unit_id: unitId, patch });
+    setUnits(prevUnits =>
+      prevUnits.map(u => (u.id === unitId ? { ...u, ...patch } : u))
+    );
+  }, [socket, roomData]);
+
+  const reparentUnit = useCallback((unitId, parentUnitId, hexKey) => {
+    if (!socket || !roomData) return;
+    socket.emit('unit_reparent', { unit_id: unitId, parent_unit_id: parentUnitId, hex_key: hexKey });
+    setUnits(prevUnits =>
+      prevUnits.map(u => {
+        if (u.id !== unitId) return u;
+        return {
+          ...u,
+          parent_unit_id: parentUnitId,
+          ...(hexKey ? { hex_key: hexKey } : {}),
+        };
+      })
+    );
+  }, [socket, roomData]);
+
   const moveUnit = useCallback((unitId, newHexKey) => {
     // Update local state immediately
     setUnits(prevUnits => 
@@ -812,6 +854,8 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
       setDraggedUnitPosition(hex.key);
       return;
     }
+
+    // No deploy hover mode in click-pickup/click-drop interaction
     
     if (interactionMode === 'draw' && isDraggingLine && lineStartHex) {
       // Snap preview line to entering hex's center (local coords)
@@ -960,20 +1004,25 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
       clearUnitGroups();
     }
     
-    // Handle unit dropping when dragging
+    // Old method: if a unit (or force) is picked up, drop it on the clicked hex
     if (isDraggingUnit && draggedUnit) {
-      if (hex.key !== draggedUnit.hex_key) {
-        // Check if target hex already has a unit
-        const existingUnit = units.find(unit => unit.hex_key === hex.key && unit.id !== draggedUnit.id);
-        if (!existingUnit) {
+      const existingUnit = units.find(unit => !unit.parent_unit_id && unit.hex_key === hex.key && unit.id !== draggedUnit.id);
+      if (existingUnit) {
+        // Merge: attach dragged unit as a force of the existing unit (even if same hex)
+        console.log('Merging units:', { dragged: draggedUnit.id, target: existingUnit.id, hex: hex.key });
+        reparentUnit(draggedUnit.id, existingUnit.id, existingUnit.hex_key);
+      } else if (hex.key !== draggedUnit.hex_key) {
+        // Normal drop: move to empty hex (only if different hex)
+        if (draggedUnit.parent_unit_id) {
+          reparentUnit(draggedUnit.id, null, hex.key);
+        } else {
           moveUnit(draggedUnit.id, hex.key);
         }
       }
-      // Stop dragging after attempting to drop
       setIsDraggingUnit(false);
       setDraggedUnit(null);
       setDraggedUnitPosition(null);
-      return; // Don't process other hex interactions
+      return;
     }
     
     if (interactionMode === 'draw' && !isDraggingLine) {
@@ -1009,7 +1058,9 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
       }
     }
     // Erase mode now works on mouse down/drag, not click
-  }, [interactionMode, isDraggingLine, lineStartHex, lines, isPainting, selectedColor, socket, roomData, isPanning, isTransforming, isDraggingUnit, draggedUnit, units, moveUnit, groupedUnits, clearUnitGroups]);
+  }, [interactionMode, isDraggingLine, lineStartHex, lines, isPainting, selectedColor, socket, roomData, isPanning, isTransforming, isDraggingUnit, draggedUnit, draggedUnitPosition, units, moveUnit, groupedUnits, clearUnitGroups, reparentUnit]);
+
+  // Reverted: pointer-based dragging. Using click-pickup/click-drop instead.
 
   const handleInteractionModeChange = (event, newMode) => {
     if (newMode !== null) { // Prevent unselecting all buttons in ToggleButtonGroup
@@ -1042,20 +1093,11 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
     return cursorByMode[interactionMode] || 'grab';
   }, [cursorByMode, interactionMode, isPanning, isTransforming]);
 
-  const switchToSelectAfterUnitClick = useCallback(() => {
-    if (interactionMode === 'erase' || interactionMode === 'select') return;
-    setInteractionMode('select');
-    setIsPainting(false);
-    setIsDraggingLine(false);
-    setLineStartHex(null);
-    setPreviewLine(null);
-    setHighlightedLinePath([]);
-  }, [interactionMode]);
-
   const handleUnitCreation = useCallback((unitData) => {
     createUnit(unitData);
     setShowUnitDialog(false);
     setUnitCreationHex(null);
+    setForceParentUnitId(null);
   }, [createUnit]);
 
   const handleDeleteUnitConfirm = useCallback(() => {
@@ -1074,56 +1116,69 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
   const handleUnitClick = useCallback((unit, event) => {
     if (event.button !== 0) return; // Only left mouse button
     if (isPanning || isTransforming) return;
-    if (unit.is_read_only) return; // Don't drag read-only units in admin rooms
-    
-    event.stopPropagation(); // Always prevent hex interaction
+    if (unit.is_read_only) return;
+
+    event.stopPropagation();
     event.preventDefault();
-    
-    // Handle Ctrl+Click for unit grouping
-    if (event.ctrlKey) {
-      toggleUnitInGroup(unit.id);
-      return;
-    }
-    
-    // Clear unit groups on any non-ctrl click
-    if (groupedUnits.size > 0) {
-      clearUnitGroups();
-    }
-    
-    // Toggle logic for unit dragging
+
     if (interactionMode === 'erase') {
-      // Show confirmation dialog before deleting unit
       setUnitToDelete(unit);
       setShowDeleteUnitDialog(true);
-    } else if (isDraggingUnit && draggedUnit && draggedUnit.id === unit.id) {
-      // Clicking the same unit that's being dragged - stop dragging at current visual position
-      const targetHexKey = draggedUnitPosition || hoveredHexKey;
-      
-      if (targetHexKey && targetHexKey !== draggedUnit.hex_key) {
-        // Check if target hex already has a unit
-        const existingUnit = units.find(unit => unit.hex_key === targetHexKey && unit.id !== draggedUnit.id);
-        if (!existingUnit) {
-          moveUnit(draggedUnit.id, targetHexKey);
-        }
-      }
-      
-      // Reset all dragging states
+      return;
+    }
+
+    // If we already have a picked-up unit and click another unit: merge into it
+    if (isDraggingUnit && draggedUnit && draggedUnit.id !== unit.id) {
+      reparentUnit(draggedUnit.id, unit.id, unit.hex_key);
       setIsDraggingUnit(false);
       setDraggedUnit(null);
       setDraggedUnitPosition(null);
-    } else if (isDraggingUnit && draggedUnit && draggedUnit.id !== unit.id) {
-      // Clicking a different unit while dragging - switch to this unit
-      switchToSelectAfterUnitClick();
-      setDraggedUnit(unit);
-      setDraggedUnitPosition(unit.hex_key); // Start at the new unit's position
-    } else {
-      // Start dragging this unit
-      switchToSelectAfterUnitClick();
-      setIsDraggingUnit(true);
-      setDraggedUnit(unit);
-      setDraggedUnitPosition(unit.hex_key); // Start at the unit's current position
+      return;
     }
-  }, [interactionMode, isPanning, isTransforming, deleteUnit, isDraggingUnit, draggedUnit, draggedUnitPosition, hoveredHexKey, units, moveUnit, toggleUnitInGroup, groupedUnits, clearUnitGroups, switchToSelectAfterUnitClick]);
+
+    // Old method: click picks up / puts down
+    if (isDraggingUnit && draggedUnit && draggedUnit.id === unit.id) {
+      setIsDraggingUnit(false);
+      setDraggedUnit(null);
+      setDraggedUnitPosition(null);
+      return;
+    }
+
+    setIsDraggingUnit(true);
+    setDraggedUnit(unit);
+    setDraggedUnitPosition(unit.hex_key);
+  }, [interactionMode, isPanning, isTransforming, isDraggingUnit, draggedUnit, reparentUnit]);
+
+  const handleUnitDoubleClick = useCallback((unit, event) => {
+    if (event.button !== 0) return;
+    if (isPanning || isTransforming) return;
+    if (unit.is_read_only) return;
+
+    event.stopPropagation();
+    event.preventDefault();
+
+    // Stop dragging when opening details
+    if (isDraggingUnit) {
+      setIsDraggingUnit(false);
+      setDraggedUnit(null);
+      setDraggedUnitPosition(null);
+    }
+
+    setSelectedUnitId(unit.id);
+    setShowUnitDetailsDialog(true);
+  }, [isPanning, isTransforming, isDraggingUnit]);
+
+  const selectedUnit = selectedUnitId ? units.find(u => u.id === selectedUnitId) : null;
+  const selectedUnitForces = selectedUnit ? units.filter(u => u.parent_unit_id === selectedUnit.id) : [];
+
+  const forceCountsByParentId = useMemo(() => {
+    const counts = new Map();
+    units.forEach((u) => {
+      if (!u.parent_unit_id) return;
+      counts.set(u.parent_unit_id, (counts.get(u.parent_unit_id) || 0) + 1);
+    });
+    return counts;
+  }, [units]);
 
   const handleUnitMouseEnter = useCallback((unit) => {
     if (isPanning || isTransforming) return;
@@ -1877,12 +1932,15 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
                   {/* Render units */}
                   {(() => {
                     const start = performance.now();
-                    const renderedUnits = units.map((unit) => {
+                    const renderedUnits = units
+                      .filter((u) => !u.parent_unit_id)
+                      .map((unit) => {
                     const hex = hexesByKey.get(unit.hex_key);
                     if (!hex) return null;
                     
                     const isDragging = isDraggingUnit && draggedUnit && draggedUnit.id === unit.id;
                     const isHovered = hoveredUnitId === unit.id;
+                    const forcesCount = forceCountsByParentId.get(unit.id) || 0;
                     
                     // If this unit is being dragged, show it at the tracked drag position
                     let displayX = hex.centerX;
@@ -1903,17 +1961,45 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
                         centerX={displayX}
                         centerY={displayY}
                         onClick={(e) => handleUnitClick(unit, e)}
+                        onDoubleClick={(e) => handleUnitDoubleClick(unit, e)}
                         onMouseEnter={() => handleUnitMouseEnter(unit)}
                         onMouseLeave={handleUnitMouseLeave}
                         isDragging={isDragging}
                         isReadOnly={unit.is_read_only}
                         isHovered={isHovered}
                         isGrouped={groupedUnits.has(unit.id)}
+                        apiBaseUrl={apiBaseUrl}
+                        forcesCount={forcesCount}
                       />
                     );
                   }).filter(Boolean);
                     performanceData.current.units = performance.now() - start;
                     return renderedUnits;
+                  })()}
+
+                  {/* Force pickup ghost (forces are hidden from map while parent_unit_id is set) */}
+                  {isDraggingUnit && draggedUnit && draggedUnit.parent_unit_id && draggedUnitPosition && (() => {
+                    const hex = hexesByKey.get(draggedUnitPosition);
+                    if (!hex) return null;
+                    return (
+                      <Unit
+                        key={`deploy-${draggedUnit.id}`}
+                        unit={draggedUnit}
+                        centerX={hex.centerX}
+                        centerY={hex.centerY}
+                        onClick={() => {}}
+                        onDoubleClick={() => {}}
+                        onMouseEnter={() => {}}
+                        onMouseLeave={() => {}}
+                        isDragging={true}
+                        isReadOnly={false}
+                        isHovered={false}
+                        isGrouped={false}
+                        apiBaseUrl={apiBaseUrl}
+                        forcesCount={0}
+                        isInteractive={false}
+                      />
+                    );
                   })()}
 
                   {interactionMode === 'draw' && previewLine && isDraggingLine && (
@@ -2103,6 +2189,33 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
         onConfirm={handleUnitCreation}
         hexKey={unitCreationHex?.key}
         initialColor={selectedColor}
+        apiBaseUrl={apiBaseUrl}
+        parentUnitId={forceParentUnitId}
+      />
+
+      <UnitDetailsDialog
+        open={showUnitDetailsDialog}
+        onClose={() => setShowUnitDetailsDialog(false)}
+        unit={selectedUnit}
+        forces={selectedUnitForces}
+        apiBaseUrl={apiBaseUrl}
+        onSaveDescription={(desc) => {
+          if (!selectedUnit) return;
+          updateUnit(selectedUnit.id, { description: desc });
+        }}
+        onAddForce={() => {
+          if (!selectedUnit) return;
+          setForceParentUnitId(selectedUnit.id);
+          setUnitCreationHex({ key: selectedUnit.hex_key });
+          setShowUnitDialog(true);
+        }}
+        onBeginDeployForce={(force) => {
+          if (!force) return;
+          setShowUnitDetailsDialog(false);
+          setIsDraggingUnit(true);
+          setDraggedUnit(force);
+          setDraggedUnitPosition(force.hex_key);
+        }}
       />
 
       {/* Unit Deletion Confirmation Dialog */}

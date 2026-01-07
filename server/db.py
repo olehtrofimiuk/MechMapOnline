@@ -119,6 +119,25 @@ def init_database():
                 FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
             )
         """)
+
+        def ensure_units_columns() -> None:
+            cursor.execute("PRAGMA table_info(units)")
+            existing_columns = {row["name"] for row in cursor.fetchall()}
+
+            required_columns: list[tuple[str, str]] = [
+                ("icon_path", "TEXT"),
+                ("tint_color", "TEXT"),
+                ("description", "TEXT"),
+                ("parent_unit_id", "TEXT"),
+            ]
+
+            for column_name, column_type in required_columns:
+                if column_name in existing_columns:
+                    continue
+                cursor.execute(f"ALTER TABLE units ADD COLUMN {column_name} {column_type}")
+                logger.info(f"Added units column: {column_name} ({column_type})")
+
+        ensure_units_columns()
         
         # Indexes for performance
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_hexes_room ON hexes(room_id)")

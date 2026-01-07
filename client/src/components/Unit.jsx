@@ -1,33 +1,84 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { buildUnitIconUrl, getTintedIconDataUrl } from '../utils/unitIcons';
 
 const Unit = ({ 
   unit, 
   centerX, 
   centerY, 
   onClick,
+  onDoubleClick,
   onMouseEnter,
   onMouseLeave,
   isDragging, 
-  isReadOnly = false,
-  isHovered = false,
-  isGrouped = false
+  isReadOnly,
+  isHovered,
+  isGrouped,
+  apiBaseUrl,
+  forcesCount,
+  isInteractive
 }) => {
   const unitSize = 140; // Size of the unit marker (diameter of circle)
-  const fontSize = 48; // Font size for unit name
+  const fontSize = 26; // Font size for unit name (below the icon)
+
+  const readOnly = Boolean(isReadOnly);
+  const hovered = Boolean(isHovered);
+  const grouped = Boolean(isGrouped);
+  const count = typeof forcesCount === 'number' ? forcesCount : 0;
+  const interactive = isInteractive !== false;
+
+  const [iconHref, setIconHref] = useState(null);
+  useEffect(() => {
+    let isCancelled = false;
+    const iconPath = unit?.icon_path;
+    const tintColor = unit?.tint_color || unit?.color;
+
+    if (!apiBaseUrl || !iconPath) {
+      setIconHref(null);
+      return () => { isCancelled = true; };
+    }
+
+    const iconUrl = buildUnitIconUrl(apiBaseUrl, iconPath);
+    if (!tintColor) {
+      setIconHref(iconUrl);
+      return () => { isCancelled = true; };
+    }
+
+    getTintedIconDataUrl(iconUrl, tintColor)
+      .then((dataUrl) => {
+        if (isCancelled) return;
+        setIconHref(dataUrl);
+      })
+      .catch(() => {
+        if (isCancelled) return;
+        setIconHref(iconUrl);
+      });
+
+    return () => { isCancelled = true; };
+  }, [apiBaseUrl, unit]);
   
   // Determine unit style based on state
   const unitStyle = {
-    cursor: isReadOnly ? 'default' : 'inherit',
+    cursor: readOnly ? 'default' : 'inherit',
     opacity: isDragging ? 0.7 : 1,
-    filter: isHovered ? 'brightness(1.2)' : 'none'
+    filter: hovered ? 'brightness(1.2)' : 'none',
+    pointerEvents: interactive ? 'all' : 'none'
   };
 
   const handleClick = (e) => {
     console.log('Unit clicked:', { unitName: unit.name, isReadOnly, button: e.button });
-    if (!isReadOnly && onClick) {
+    if (!readOnly && onClick) {
       e.stopPropagation(); // Prevent hex click
       e.preventDefault();
       onClick(e);
+    }
+  };
+
+  const handleDoubleClick = (e) => {
+    if (!interactive) return;
+    if (!readOnly && onDoubleClick) {
+      e.stopPropagation();
+      e.preventDefault();
+      onDoubleClick(e);
     }
   };
 
@@ -47,6 +98,7 @@ const Unit = ({
     <g 
       style={unitStyle}
       onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
@@ -55,7 +107,7 @@ const Unit = ({
         cx={centerX}
         cy={centerY}
         r={unitSize / 2}
-        fill={unit.color}
+        fill="rgba(0,0,0,0.15)"
         stroke="#000"
         strokeWidth={2}
         style={{ pointerEvents: 'none' }}
@@ -72,6 +124,19 @@ const Unit = ({
         opacity={0.8}
         style={{ pointerEvents: 'none' }}
       />
+
+      {/* Unit icon */}
+      {iconHref && (
+        <image
+          href={iconHref}
+          x={centerX - 44}
+          y={centerY - 44}
+          width={88}
+          height={88}
+          style={{ pointerEvents: 'none' }}
+          opacity={0.95}
+        />
+      )}
       
       {/* Invisible click area - smaller than visual circle to allow hex clicks */}
       <circle
@@ -85,7 +150,7 @@ const Unit = ({
       {/* Unit name text */}
       <text
         x={centerX}
-        y={centerY + fontSize / 3}
+        y={centerY + unitSize / 2 + fontSize}
         textAnchor="middle"
         fontSize={fontSize}
         fontWeight="bold"
@@ -103,7 +168,7 @@ const Unit = ({
       </text>
       
       {/* Read-only indicator for admin rooms */}
-      {isReadOnly && (
+      {readOnly && (
         <g opacity={0.7}>
           <circle
             cx={centerX + unitSize / 2 - 10}
@@ -128,7 +193,7 @@ const Unit = ({
       )}
       
       {/* Hover highlight */}
-      {isHovered && !isReadOnly && (
+      {hovered && !readOnly && (
         <circle
           cx={centerX}
           cy={centerY}
@@ -142,7 +207,7 @@ const Unit = ({
       )}
       
       {/* Grouped indicator */}
-      {isGrouped && (
+      {grouped && (
         <g>
           {/* Grouped unit border */}
           <circle
@@ -176,6 +241,32 @@ const Unit = ({
             style={{ pointerEvents: 'none' }}
           >
             G
+          </text>
+        </g>
+      )}
+
+      {/* Forces count badge */}
+      {count > 0 && (
+        <g opacity={0.9}>
+          <circle
+            cx={centerX + unitSize / 2 - 14}
+            cy={centerY + unitSize / 2 - 14}
+            r={14}
+            fill="rgba(0, 0, 0, 0.7)"
+            stroke="rgba(0, 255, 255, 0.9)"
+            strokeWidth={2}
+            style={{ pointerEvents: 'none' }}
+          />
+          <text
+            x={centerX + unitSize / 2 - 14}
+            y={centerY + unitSize / 2 - 9}
+            textAnchor="middle"
+            fontSize={14}
+            fill="rgba(0, 255, 255, 0.95)"
+            fontWeight="bold"
+            style={{ pointerEvents: 'none', fontFamily: "'Rajdhani', monospace" }}
+          >
+            {count}
           </text>
         </g>
       )}

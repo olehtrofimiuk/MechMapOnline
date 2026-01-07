@@ -173,7 +173,8 @@ def get_room_state(room_id: str) -> Dict[str, Any]:
         
         # Get units
         cursor.execute("""
-            SELECT unit_id, name, color, hex_key, created_by, created_at, moved_by, moved_at
+            SELECT unit_id, name, color, hex_key, icon_path, tint_color, description, parent_unit_id,
+                   created_by, created_at, moved_by, moved_at
             FROM units WHERE room_id = ? ORDER BY created_at
         """, (room_id,))
         units = []
@@ -183,6 +184,10 @@ def get_room_state(room_id: str) -> Dict[str, Any]:
                 'name': row['name'],
                 'color': row['color'],
                 'hex_key': row['hex_key'],
+                'icon_path': row['icon_path'],
+                'tint_color': row['tint_color'],
+                'description': row['description'],
+                'parent_unit_id': row['parent_unit_id'],
                 'created_by': row['created_by'],
                 'created_at': row['created_at']
             }
@@ -324,10 +329,25 @@ def add_unit(room_id: str, unit_id: str, unit_data: Dict[str, Any], created_by: 
     with db_transaction() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO units (room_id, unit_id, name, color, hex_key, created_at, created_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (room_id, unit_id, unit_data['name'], unit_data['color'], 
-              unit_data['hex_key'], current_time, created_by))
+            INSERT INTO units (
+                room_id, unit_id, name, color, hex_key,
+                icon_path, tint_color, description, parent_unit_id,
+                created_at, created_by
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            room_id,
+            unit_id,
+            unit_data['name'],
+            unit_data['color'],
+            unit_data['hex_key'],
+            unit_data.get('icon_path'),
+            unit_data.get('tint_color'),
+            unit_data.get('description'),
+            unit_data.get('parent_unit_id'),
+            current_time,
+            created_by,
+        ))
 
 def move_unit(room_id: str, unit_id: str, new_hex_key: str, moved_by: Optional[str] = None) -> None:
     """Move a unit to a new hex"""
@@ -338,12 +358,114 @@ def move_unit(room_id: str, unit_id: str, new_hex_key: str, moved_by: Optional[s
             UPDATE units SET hex_key = ?, moved_at = ?, moved_by = ?
             WHERE room_id = ? AND unit_id = ?
         """, (new_hex_key, current_time, moved_by, room_id, unit_id))
+        # Keep children in sync with parent location
+        cursor.execute("""
+            UPDATE units SET hex_key = ?, moved_at = ?, moved_by = ?
+            WHERE room_id = ? AND parent_unit_id = ?
+        """, (new_hex_key, current_time, moved_by, room_id, unit_id))
 
 def delete_unit(room_id: str, unit_id: str) -> None:
     """Delete a unit"""
     with db_transaction() as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM units WHERE room_id = ? AND unit_id = ?", (room_id, unit_id))
+
+def get_unit(room_id: str, unit_id: str) -> Optional[Dict[str, Any]]:
+    """Get a unit by ID."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT unit_id, name, color, hex_key, icon_path, tint_color, description, parent_unit_id,
+                   created_by, created_at, moved_by, moved_at
+            FROM units WHERE room_id = ? AND unit_id = ?
+        """, (room_id, unit_id))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        unit: Dict[str, Any] = {
+            'id': row['unit_id'],
+            'name': row['name'],
+            'color': row['color'],
+            'hex_key': row['hex_key'],
+            'icon_path': row['icon_path'],
+            'tint_color': row['tint_color'],
+            'description': row['description'],
+            'parent_unit_id': row['parent_unit_id'],
+            'created_by': row['created_by'],
+            'created_at': row['created_at'],
+        }
+        if row['moved_by']:
+            unit['moved_by'] = row['moved_by']
+            unit['moved_at'] = row['moved_at']
+        return unit
+    finally:
+        conn.close()
+
+def update_unit(room_id: str, unit_id: str, patch: Dict[str, Any], updated_by: Optional[str] = None) -> None:
+    """Update mutable unit fields."""
+    allowed_fields = {"name", "icon_path", "tint_color", "description"}
+    unknown_fields = set(patch.keys()) - allowed_fields
+    if unknown_fields:
+        raise ValueError(f"Unknown unit fields: {sorted(list(unknown_fields))}")
+
+    set_parts: list[str] = []
+    values: list[Any] = []
+    for field_name in ["name", "icon_path", "tint_color", "description"]:
+        if field_name in patch:
+            set_parts.append(f"{field_name} = ?")
+            values.append(patch[field_name])
+
+    if not set_parts:
+        raise ValueError("No fields provided to update_unit")
+
+    current_time = get_current_time()
+    set_parts.extend(["moved_at = ?", "moved_by = ?"])
+    values.extend([current_time, updated_by])
+
+    values.extend([room_id, unit_id])
+
+    with db_transaction() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            f"UPDATE units SET {', '.join(set_parts)} WHERE room_id = ? AND unit_id = ?",
+            tuple(values),
+        )
+
+def reparent_unit(
+    room_id: str,
+    unit_id: str,
+    parent_unit_id: Optional[str],
+    hex_key: Optional[str],
+    moved_by: Optional[str],
+) -> None:
+    """Attach/detach a unit to/from a parent unit."""
+    current_time = get_current_time()
+    with db_transaction() as conn:
+        cursor = conn.cursor()
+
+        if parent_unit_id:
+            cursor.execute(
+                "SELECT hex_key FROM units WHERE room_id = ? AND unit_id = ?",
+                (room_id, parent_unit_id),
+            )
+            parent_row = cursor.fetchone()
+            if not parent_row:
+                raise ValueError(f"Parent unit not found: {parent_unit_id}")
+            parent_hex_key = parent_row["hex_key"]
+            cursor.execute("""
+                UPDATE units
+                SET parent_unit_id = ?, hex_key = ?, moved_at = ?, moved_by = ?
+                WHERE room_id = ? AND unit_id = ?
+            """, (parent_unit_id, parent_hex_key, current_time, moved_by, room_id, unit_id))
+        else:
+            if not hex_key:
+                raise ValueError("hex_key is required when detaching a unit from parent")
+            cursor.execute("""
+                UPDATE units
+                SET parent_unit_id = NULL, hex_key = ?, moved_at = ?, moved_by = ?
+                WHERE room_id = ? AND unit_id = ?
+            """, (hex_key, current_time, moved_by, room_id, unit_id))
 
 def delete_units_by_hex(room_id: str, hex_key: str) -> None:
     """Delete all units on a hex"""
@@ -386,10 +508,20 @@ def replace_room_state(room_id: str, hex_data: Dict[str, Any], lines: List[Dict[
             if not unit_id:
                 continue
             cursor.execute("""
-                INSERT INTO units (room_id, unit_id, name, color, hex_key, created_at, created_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO units (
+                    room_id, unit_id, name, color, hex_key,
+                    icon_path, tint_color, description, parent_unit_id,
+                    created_at, created_by
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (room_id, unit_id, unit['name'], unit['color'], 
-                  unit['hex_key'], current_time, updated_by))
+                  unit['hex_key'],
+                  unit.get('icon_path'),
+                  unit.get('tint_color'),
+                  unit.get('description'),
+                  unit.get('parent_unit_id'),
+                  current_time,
+                  updated_by))
 
 def migrate_json_to_sqlite(rooms_file: str = "room_data/rooms.json", 
                            users_file: str = "room_data/users.json") -> None:
