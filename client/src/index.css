@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600;700&family=Exo+2:wght@300;400;500;600;700&display=swap');
+
 /* Neotech/Cyberpunk Global Theme */
 :root {
   /* Neotech Color Palette */
@@ -48,9 +50,6 @@ html, body {
   height: 100%;
   overflow: hidden;
 }
-
-/* Import Neotech Fonts */
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600;700&family=Exo+2:wght@300;400;500;600;700&display=swap');
 
 code {
   font-family: 'Courier New', 'Fira Code', 'Source Code Pro', monospace;

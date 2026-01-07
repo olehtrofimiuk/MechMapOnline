@@ -1344,8 +1344,16 @@ try:
     import os
     client_build_path = os.path.join(os.path.dirname(__file__), "..", "client", "build")
     if os.path.exists(client_build_path):
-        # Serve React app static files
-        app.mount("/static", StaticFiles(directory=os.path.join(client_build_path, "static")), name="static")
+        # Serve React app assets (Vite puts JS/CSS in assets/)
+        assets_path = os.path.join(client_build_path, "assets")
+        if os.path.exists(assets_path):
+            app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
+        
+        # Serve React app static files (for public/static folder contents)
+        static_path = os.path.join(client_build_path, "static")
+        if os.path.exists(static_path):
+            app.mount("/static", StaticFiles(directory=static_path), name="static")
+        
         logging.info(f"Serving React app from: {client_build_path}")
     else:
         # Fallback to server static files
@@ -1356,7 +1364,7 @@ except RuntimeError as e:
 
 # Catch-all route for React app (must be at the end)
 @app.get("/{full_path:path}")
-async def serve_react_app(full_path: str):
+async def serve_react_app(full_path: str, request: Request):
     """Serve React app for all non-API routes"""
     from fastapi.responses import FileResponse
     import os
@@ -1365,7 +1373,16 @@ async def serve_react_app(full_path: str):
     if full_path.startswith(("api/", "ws/")):
         raise HTTPException(status_code=404, detail="Not found")
     
-    build_path = os.path.join(os.path.dirname(__file__), "..", "client", "build", "index.html")
+    # Check if the requested path is a file in the build directory
+    client_build_path = os.path.join(os.path.dirname(__file__), "..", "client", "build")
+    file_path = os.path.join(client_build_path, full_path)
+    
+    # If it's a file and exists, serve it (for favicon, manifest, etc.)
+    if os.path.exists(file_path) and os.path.isfile(file_path):
+        return FileResponse(file_path)
+    
+    # Otherwise serve index.html for React routing
+    build_path = os.path.join(client_build_path, "index.html")
     if os.path.exists(build_path):
         return FileResponse(build_path)
     else:
