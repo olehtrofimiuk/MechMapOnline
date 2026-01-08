@@ -15,7 +15,8 @@ const Unit = ({
   isGrouped,
   apiBaseUrl,
   forcesCount,
-  isInteractive
+  isInteractive,
+  onClickWhileDragging
 }) => {
   const unitSize = 140; // Size of the unit marker (diameter of circle)
   const fontSize = 26; // Font size for unit name (below the icon)
@@ -65,7 +66,17 @@ const Unit = ({
   };
 
   const handleClick = (e) => {
-    console.log('Unit clicked:', { unitName: unit.name, isReadOnly, button: e.button });
+    console.log('Unit clicked:', { unitName: unit.name, isReadOnly, isDragging, button: e.button });
+    
+    // When dragging, trigger hex click at the dragged position
+    if (isDragging && onClickWhileDragging) {
+      console.log('Unit is being dragged, triggering hex click');
+      e.stopPropagation();
+      e.preventDefault();
+      onClickWhileDragging(e);
+      return;
+    }
+    
     if (!readOnly && onClick) {
       e.stopPropagation(); // Prevent hex click
       e.preventDefault();
@@ -76,6 +87,7 @@ const Unit = ({
   const handleDoubleClick = (e) => {
     if (!interactive) return;
     if (!readOnly && onDoubleClick) {
+      // Double-click should always work to open details, even when dragging
       e.stopPropagation();
       e.preventDefault();
       onDoubleClick(e);

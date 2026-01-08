@@ -1970,6 +1970,10 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
                         isGrouped={groupedUnits.has(unit.id)}
                         apiBaseUrl={apiBaseUrl}
                         forcesCount={forcesCount}
+                        onClickWhileDragging={isDragging && draggedUnitPosition ? (e) => {
+                          const hex = hexesByKey.get(draggedUnitPosition);
+                          if (hex) handleHexClick(hex, e);
+                        } : null}
                       />
                     );
                   }).filter(Boolean);
@@ -1997,7 +2001,11 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
                         isGrouped={false}
                         apiBaseUrl={apiBaseUrl}
                         forcesCount={0}
-                        isInteractive={false}
+                        isInteractive={true}
+                        onClickWhileDragging={(e) => {
+                          const hex = hexesByKey.get(draggedUnitPosition);
+                          if (hex) handleHexClick(hex, e);
+                        }}
                       />
                     );
                   })()}
