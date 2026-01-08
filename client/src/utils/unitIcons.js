@@ -64,8 +64,9 @@ export const getTintedIconDataUrl = async (iconUrl, tintColor) => {
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = imageData.data;
 
-  // Replace near-white pixels with tint color
-  const threshold = 240;
+  // Replace grayscale pixels with brightness >50 with tint color
+  const threshold = 50;
+  const grayscaleTolerance = 10; // Allow small differences for grayscale detection
   for (let i = 0; i < data.length; i += 4) {
     const a = data[i + 3];
     if (a === 0) continue;
@@ -73,7 +74,16 @@ export const getTintedIconDataUrl = async (iconUrl, tintColor) => {
     const g = data[i + 1];
     const b = data[i + 2];
 
-    if (r >= threshold && g >= threshold && b >= threshold) {
+    // Check if pixel is grayscale (r, g, b are close to each other)
+    const isGrayscale = Math.abs(r - g) <= grayscaleTolerance && 
+                        Math.abs(g - b) <= grayscaleTolerance && 
+                        Math.abs(r - b) <= grayscaleTolerance;
+    
+    // Calculate grayscale brightness (luminance)
+    const brightness = (r + g + b) / 3;
+
+    // Apply tint if grayscale and brightness > threshold
+    if (isGrayscale && brightness > threshold) {
       data[i] = tr;
       data[i + 1] = tg;
       data[i + 2] = tb;

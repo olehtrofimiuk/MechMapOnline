@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 
 
 from fastapi import FastAPI, Request, HTTPException, Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -357,6 +357,38 @@ async def get_unit_icons():
         return JSONResponse(content={"icons": icons})
     except (FileNotFoundError, NotADirectoryError) as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/unit-icons/{icon_path:path}")
+async def serve_unit_icon(icon_path: str):
+    """Serve unit icon with CORS headers for canvas operations."""
+    try:
+        # Decode the path and resolve it
+        full_path = UNIT_ICONS_DIR / icon_path
+        
+        # Security check: ensure path is within UNIT_ICONS_DIR
+        resolved_path = full_path.resolve()
+        if not str(resolved_path).startswith(str(UNIT_ICONS_DIR.resolve())):
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        if not resolved_path.exists() or not resolved_path.is_file():
+            raise HTTPException(status_code=404, detail="Icon not found")
+        
+        # Return file with CORS headers for canvas operations
+        return FileResponse(
+            path=str(resolved_path),
+            media_type="image/png",
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, OPTIONS",
+                "Access-Control-Allow-Headers": "*",
+                "Cache-Control": "public, max-age=3600"
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error serving unit icon {icon_path}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # Add CORS middleware
 app.add_middleware(
@@ -1396,15 +1428,12 @@ try:
 except RuntimeError as e:
     logging.error(f"Error mounting static files: {e}")
 
-# Unit icons mount (repo assets) - avoid conflict with React build /assets
-try:
-    if UNIT_ICONS_DIR.exists() and UNIT_ICONS_DIR.is_dir():
-        app.mount(UNIT_ICONS_MOUNT_PATH, StaticFiles(directory=str(UNIT_ICONS_DIR)), name="unit-icons")
-        logging.info(f"Serving unit icons from: {UNIT_ICONS_DIR} at {UNIT_ICONS_MOUNT_PATH}")
-    else:
-        logging.warning(f"Unit icons directory missing or invalid: {UNIT_ICONS_DIR}")
-except RuntimeError as e:
-    logging.error(f"Error mounting unit icons: {e}")
+# Unit icons are now served via custom endpoint with CORS headers
+# See @app.get("/unit-icons/{icon_path:path}") above
+if UNIT_ICONS_DIR.exists() and UNIT_ICONS_DIR.is_dir():
+    logging.info(f"Unit icons available from: {UNIT_ICONS_DIR} at {UNIT_ICONS_MOUNT_PATH}")
+else:
+    logging.warning(f"Unit icons directory missing or invalid: {UNIT_ICONS_DIR}")
 
 # Catch-all route for React app (must be at the end)
 @app.get("/{full_path:path}")

@@ -63,14 +63,20 @@ const UnitCreationDialog = ({
       setIconPreviewHref('');
       return () => { isCancelled = true; };
     }
+    if (!unitColor) {
+      setIconPreviewHref('');
+      return () => { isCancelled = true; };
+    }
     const iconUrl = buildUnitIconUrl(apiBaseUrl, unitIconPath);
     getTintedIconDataUrl(iconUrl, unitColor)
       .then((href) => {
         if (isCancelled) return;
         setIconPreviewHref(href);
       })
-      .catch(() => {
+      .catch((error) => {
+        console.error('Failed to generate tinted icon preview:', error);
         if (isCancelled) return;
+        // Fallback to untinted icon if tinting fails
         setIconPreviewHref(iconUrl);
       });
     return () => { isCancelled = true; };

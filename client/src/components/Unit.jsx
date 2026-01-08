@@ -55,7 +55,7 @@ const Unit = ({
       });
 
     return () => { isCancelled = true; };
-  }, [apiBaseUrl, unit]);
+  }, [apiBaseUrl, unit?.icon_path, unit?.tint_color, unit?.color]);
   
   // Determine unit style based on state
   const unitStyle = {
