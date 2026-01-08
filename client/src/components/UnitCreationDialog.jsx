@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -12,7 +12,7 @@ import {
 } from '@mui/material';
 import { HexColorPicker } from 'react-colorful';
 import IconPicker from './IconPicker';
-import { buildUnitIconUrl, getTintedIconDataUrl } from '../utils/unitIcons';
+import { buildUnitIconUrl, createColorFilter, getFilterId } from '../utils/unitIcons';
 
 const UnitCreationDialog = ({ 
   open, 
@@ -27,7 +27,6 @@ const UnitCreationDialog = ({
   const [unitColor, setUnitColor] = useState(initialColor);
   const [unitIconPath, setUnitIconPath] = useState('');
   const [unitDescription, setUnitDescription] = useState('');
-  const [iconPreviewHref, setIconPreviewHref] = useState('');
 
   // Preset colors for quick selection
   const presetColors = [
@@ -45,6 +44,10 @@ const UnitCreationDialog = ({
     '#A52A2A', // Brown
   ];
 
+  // Create SVG filter for icon preview
+  const colorFilterDef = useMemo(() => unitColor ? createColorFilter(unitColor) : null, [unitColor]);
+  const filterId = colorFilterDef ? colorFilterDef.id : null;
+
   // Reset form when dialog opens
   useEffect(() => {
     if (open) {
@@ -52,35 +55,8 @@ const UnitCreationDialog = ({
       setUnitColor(initialColor);
       setUnitIconPath('');
       setUnitDescription('');
-      setIconPreviewHref('');
     }
   }, [open, initialColor]);
-
-  useEffect(() => {
-    let isCancelled = false;
-    if (!open) return () => { isCancelled = true; };
-    if (!apiBaseUrl || !unitIconPath) {
-      setIconPreviewHref('');
-      return () => { isCancelled = true; };
-    }
-    if (!unitColor) {
-      setIconPreviewHref('');
-      return () => { isCancelled = true; };
-    }
-    const iconUrl = buildUnitIconUrl(apiBaseUrl, unitIconPath);
-    getTintedIconDataUrl(iconUrl, unitColor)
-      .then((href) => {
-        if (isCancelled) return;
-        setIconPreviewHref(href);
-      })
-      .catch((error) => {
-        console.error('Failed to generate tinted icon preview:', error);
-        if (isCancelled) return;
-        // Fallback to untinted icon if tinting fails
-        setIconPreviewHref(iconUrl);
-      });
-    return () => { isCancelled = true; };
-  }, [apiBaseUrl, open, unitColor, unitIconPath]);
 
   const handleConfirm = () => {
     if (unitName.trim() && unitIconPath) {
@@ -195,17 +171,45 @@ const UnitCreationDialog = ({
             {unitIconPath && apiBaseUrl && (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1.5 }}>
                 <Box
-                  component="img"
-                  src={iconPreviewHref || buildUnitIconUrl(apiBaseUrl, unitIconPath)}
-                  alt={unitIconPath}
                   sx={{
                     width: 110,
                     height: 110,
                     background: 'rgba(0,0,0,0.25)',
                     borderRadius: 1,
-                    border: '1px solid var(--neotech-border)'
+                    border: '1px solid var(--neotech-border)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    overflow: 'hidden'
                   }}
-                />
+                >
+                  <svg
+                    width="110"
+                    height="110"
+                    viewBox="0 0 110 110"
+                    style={{ display: 'block' }}
+                  >
+                    {colorFilterDef && (
+                      <defs>
+                        <filter id={colorFilterDef.id} x="0%" y="0%" width="100%" height="100%">
+                          <feColorMatrix
+                            type="matrix"
+                            values={colorFilterDef.matrix}
+                          />
+                        </filter>
+                      </defs>
+                    )}
+                    <image
+                      href={buildUnitIconUrl(apiBaseUrl, unitIconPath)}
+                      x="0"
+                      y="0"
+                      width="110"
+                      height="110"
+                      filter={filterId ? `url(#${filterId})` : undefined}
+                      preserveAspectRatio="xMidYMid meet"
+                    />
+                  </svg>
+                </Box>
                 <Typography sx={{ color: 'var(--neotech-text-secondary)', fontFamily: "'Rajdhani', monospace" }}>
                   {unitIconPath}
                 </Typography>

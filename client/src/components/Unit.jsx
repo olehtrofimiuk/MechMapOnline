@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { buildUnitIconUrl, getTintedIconDataUrl } from '../utils/unitIcons';
+import React, { useMemo } from 'react';
+import { buildUnitIconUrl, createColorFilter, getFilterId } from '../utils/unitIcons';
 
 const Unit = ({ 
   unit, 
@@ -27,35 +27,11 @@ const Unit = ({
   const count = typeof forcesCount === 'number' ? forcesCount : 0;
   const interactive = isInteractive !== false;
 
-  const [iconHref, setIconHref] = useState(null);
-  useEffect(() => {
-    let isCancelled = false;
-    const iconPath = unit?.icon_path;
-    const tintColor = unit?.tint_color || unit?.color;
-
-    if (!apiBaseUrl || !iconPath) {
-      setIconHref(null);
-      return () => { isCancelled = true; };
-    }
-
-    const iconUrl = buildUnitIconUrl(apiBaseUrl, iconPath);
-    if (!tintColor) {
-      setIconHref(iconUrl);
-      return () => { isCancelled = true; };
-    }
-
-    getTintedIconDataUrl(iconUrl, tintColor)
-      .then((dataUrl) => {
-        if (isCancelled) return;
-        setIconHref(dataUrl);
-      })
-      .catch(() => {
-        if (isCancelled) return;
-        setIconHref(iconUrl);
-      });
-
-    return () => { isCancelled = true; };
-  }, [apiBaseUrl, unit?.icon_path, unit?.tint_color, unit?.color]);
+  const iconPath = unit?.icon_path;
+  const tintColor = unit?.tint_color || unit?.color;
+  const iconUrl = apiBaseUrl && iconPath ? buildUnitIconUrl(apiBaseUrl, iconPath) : null;
+  const colorFilterDef = useMemo(() => tintColor ? createColorFilter(tintColor) : null, [tintColor]);
+  const filterId = colorFilterDef ? colorFilterDef.id : null;
   
   // Determine unit style based on state
   const unitStyle = {
@@ -114,6 +90,18 @@ const Unit = ({
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
+      {/* SVG filter definitions */}
+      {colorFilterDef && (
+        <defs>
+          <filter id={colorFilterDef.id} x="0%" y="0%" width="100%" height="100%">
+            <feColorMatrix
+              type="matrix"
+              values={colorFilterDef.matrix}
+            />
+          </filter>
+        </defs>
+      )}
+      
       {/* Unit circle background */}
       <circle
         cx={centerX}
@@ -138,13 +126,14 @@ const Unit = ({
       />
 
       {/* Unit icon */}
-      {iconHref && (
+      {iconUrl && (
         <image
-          href={iconHref}
+          href={iconUrl}
           x={centerX - 44}
           y={centerY - 44}
           width={88}
           height={88}
+          filter={filterId ? `url(#${filterId})` : undefined}
           style={{ pointerEvents: 'none' }}
           opacity={0.95}
         />
