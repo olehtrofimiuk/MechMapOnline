@@ -12,11 +12,12 @@ import secrets
 from datetime import datetime, timedelta
 
 
-from fastapi import FastAPI, Request, HTTPException, Depends
+from fastapi import FastAPI, Request, HTTPException, Depends, UploadFile, File
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.datastructures import UploadFile as StarletteUploadFile
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
 
@@ -30,7 +31,7 @@ from repository import (
     update_hex, erase_hex, add_line, delete_lines_by_hex,
     add_unit, move_unit, delete_unit, delete_units_by_hex,
     replace_room_state, migrate_json_to_sqlite,
-    update_unit, reparent_unit, get_unit
+    update_unit, reparent_unit, get_unit, update_room_map
 )
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -49,6 +50,49 @@ USERS_FILE = "room_data/users.json"
 # Unit icons directory (repo-local assets)
 UNIT_ICONS_DIR = Path(__file__).resolve().parent.parent / "assets"
 UNIT_ICONS_MOUNT_PATH = "/unit-icons"
+
+# Room maps directory
+ROOM_MAPS_DIR = Path(__file__).resolve().parent / "room_data" / "maps"
+ROOM_MAPS_DIR.mkdir(parents=True, exist_ok=True)
+# Starlette defaults max_part_size to 1MB, which triggers HTTP 413 for big uploads.
+# Set this very high to effectively remove the app-level limit.
+ROOM_MAPS_MAX_PART_SIZE_BYTES = 2 * 1024 * 1024 * 1024  # 2GB
+
+
+def _ensure_uploadfile(value: object) -> UploadFile:
+    """Validate that a multipart form field is an UploadFile."""
+    # Starlette's Request.form() returns starlette.datastructures.UploadFile.
+    # FastAPI's UploadFile wraps Starlette's, so accept either.
+    if isinstance(value, UploadFile):
+        return value
+    if isinstance(value, StarletteUploadFile):
+        # Cast for typing; this object has the same interface we use (filename, content_type, read())
+        return value  # type: ignore[return-value]
+    raise HTTPException(status_code=400, detail="Missing file upload field 'file'")
+
+
+def _validate_image_upload(file: UploadFile) -> None:
+    """Validate that upload looks like an image."""
+    # Some clients may omit content_type; allow known image extensions in that case.
+    content_type = file.content_type or ""
+    if content_type.startswith("image/"):
+        return
+    file_name = file.filename or ""
+    ext = os.path.splitext(file_name)[1].lower()
+    if ext in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
+        return
+    raise HTTPException(
+        status_code=400,
+        detail=f"File must be an image (content_type={content_type!r}, filename={file_name!r})",
+    )
+
+
+def _safe_map_ext(file_name: str) -> str:
+    ext = os.path.splitext(file_name)[1].lower()
+    if ext in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
+        return ext
+    # Default to .png if unknown/empty; this only affects filename, not actual bytes
+    return ".png"
 
 # Pydantic models for API
 class UserRegister(BaseModel):
@@ -390,6 +434,134 @@ async def serve_unit_icon(icon_path: str):
         logging.error(f"Error serving unit icon {icon_path}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
+@app.post("/api/upload-map-temp")
+async def upload_temp_map(request: Request):
+    """Upload a map image before room creation. Returns a map_filename to attach to a room."""
+    try:
+        form = await request.form(max_part_size=ROOM_MAPS_MAX_PART_SIZE_BYTES)
+        file = _ensure_uploadfile(form.get("file"))
+        _validate_image_upload(file)
+
+        original_name = file.filename or "map.png"
+        file_ext = _safe_map_ext(original_name)
+        safe_filename = f"tmp_{uuid.uuid4().hex[:16]}{file_ext}"
+        file_path = ROOM_MAPS_DIR / safe_filename
+
+        content = await file.read()
+        with open(file_path, "wb") as f:
+            f.write(content)
+
+        logging.info(f"Temp map uploaded: {safe_filename}")
+        return {"success": True, "map_filename": safe_filename}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error uploading temp map: {e}")
+        raise HTTPException(status_code=500, detail="Failed to upload map")
+
+
+@app.post("/api/upload-room-map")
+async def upload_room_map(room_id: str, request: Request):
+    """Upload a map image for an existing room"""
+    try:
+        # Validate room exists
+        room_meta = get_room(room_id)
+        if not room_meta:
+            raise HTTPException(status_code=404, detail="Room not found")
+
+        form = await request.form(max_part_size=ROOM_MAPS_MAX_PART_SIZE_BYTES)
+        file = _ensure_uploadfile(form.get("file"))
+        _validate_image_upload(file)
+
+        original_name = file.filename or "map.png"
+        file_ext = _safe_map_ext(original_name)
+        safe_filename = f"{room_id}_{uuid.uuid4().hex[:16]}{file_ext}"
+        file_path = ROOM_MAPS_DIR / safe_filename
+        
+        # Save file
+        content = await file.read()
+        with open(file_path, 'wb') as f:
+            f.write(content)
+        
+        # Delete old map if exists
+        old_map_filename = room_meta.get('map_filename')
+        if old_map_filename:
+            old_map_path = ROOM_MAPS_DIR / old_map_filename
+            if old_map_path.exists():
+                try:
+                    old_map_path.unlink()
+                except Exception as e:
+                    logging.warning(f"Could not delete old map file: {e}")
+        
+        # Update room with new map filename
+        update_room_map(room_id, safe_filename)
+        
+        logging.info(f"Map uploaded for room {room_id}: {safe_filename}")
+        
+        return {
+            "success": True,
+            "map_filename": safe_filename,
+            "map_url": f"/api/room-map/{room_id}"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error uploading room map: {e}")
+        raise HTTPException(status_code=500, detail="Failed to upload map")
+
+@app.get("/api/room-map/{room_id}")
+async def serve_room_map(room_id: str):
+    """Serve the map image for a room"""
+    try:
+        room_meta = get_room(room_id)
+        if not room_meta:
+            raise HTTPException(status_code=404, detail="Room not found")
+        
+        map_filename = room_meta.get('map_filename')
+        if not map_filename:
+            raise HTTPException(status_code=404, detail="No map uploaded for this room")
+        
+        map_path = ROOM_MAPS_DIR / map_filename
+        
+        # Security check: ensure path is within ROOM_MAPS_DIR
+        resolved_path = map_path.resolve()
+        if not str(resolved_path).startswith(str(ROOM_MAPS_DIR.resolve())):
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        if not resolved_path.exists() or not resolved_path.is_file():
+            raise HTTPException(status_code=404, detail="Map file not found")
+        
+        # Determine content type from extension
+        ext = os.path.splitext(map_filename)[1].lower()
+        content_type = {
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.gif': 'image/gif',
+            '.webp': 'image/webp'
+        }.get(ext, 'image/png')
+        
+        return FileResponse(
+            path=str(resolved_path),
+            media_type=content_type,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, OPTIONS",
+                "Access-Control-Allow-Headers": "*",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error serving room map {room_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -518,6 +690,7 @@ async def handle_create_room(sid, data):
     user_name = data.get('user_name', 'Anonymous')
     room_name = data.get('room_name', 'Unnamed Room').strip()
     room_password = data.get('room_password', '').strip() if data.get('room_password') else None
+    map_filename = data.get('map_filename')
     # Use authenticated username if available, otherwise use provided name
     if user_data.get('is_authenticated'):
         actual_user_name = user_data['username']
@@ -542,7 +715,7 @@ async def handle_create_room(sid, data):
         password_hash = hash_password(room_password)
     
     # Create room in database
-    create_room(room_id, room_name, room_owner, password_hash)
+    create_room(room_id, room_name, room_owner, password_hash, map_filename)
     
     # Keep in-memory cache for backward compatibility
     rooms[room_id] = {
@@ -555,7 +728,8 @@ async def handle_create_room(sid, data):
         'last_activity': asyncio.get_event_loop().time(),
         'owner': room_owner,
         'has_password': room_password is not None,
-        'password_hash': password_hash
+        'password_hash': password_hash,
+        'map_filename': map_filename
     }
     
     # Join user to room
@@ -587,7 +761,8 @@ async def handle_create_room(sid, data):
         'hex_data': room_state['hex_data'],
         'lines': room_state['lines'],
         'units': room_state['units'],
-        'users': list(rooms[room_id]['users'].values())
+        'users': list(rooms[room_id]['users'].values()),
+        'map_filename': room_state.get('map_filename')
     }, room=sid)
 
 @sio.on('join_room')
@@ -671,7 +846,8 @@ async def handle_join_room(sid, data):
         'hex_data': room_state['hex_data'],
         'lines': room_state['lines'],
         'units': room_state['units'],
-        'users': list(rooms[room_id]['users'].values())
+        'users': list(rooms[room_id]['users'].values()),
+        'map_filename': room_state.get('map_filename')
     }, room=sid)
     
     # Notify other users in the room

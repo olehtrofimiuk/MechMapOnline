@@ -139,6 +139,17 @@ def init_database():
 
         ensure_units_columns()
         
+        # Ensure rooms table has map_filename column
+        def ensure_rooms_columns() -> None:
+            cursor.execute("PRAGMA table_info(rooms)")
+            existing_columns = {row["name"] for row in cursor.fetchall()}
+            
+            if "map_filename" not in existing_columns:
+                cursor.execute("ALTER TABLE rooms ADD COLUMN map_filename TEXT")
+                logger.info("Added rooms column: map_filename (TEXT)")
+        
+        ensure_rooms_columns()
+        
         # Indexes for performance
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_hexes_room ON hexes(room_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_lines_room ON lines(room_id)")

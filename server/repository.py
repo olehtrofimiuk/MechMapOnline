@@ -114,17 +114,17 @@ def delete_all_user_tokens(username: str) -> None:
 
 # Room operations
 def create_room(room_id: str, room_name: str, owner_username: Optional[str] = None, 
-                password_hash: Optional[str] = None) -> None:
+                password_hash: Optional[str] = None, map_filename: Optional[str] = None) -> None:
     """Create a new room"""
     current_time = get_current_time()
     with db_transaction() as conn:
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO rooms (room_id, name, owner_username, has_password, password_hash, 
-                             created_at, last_activity, version)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+                             created_at, last_activity, version, map_filename)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
         """, (room_id, room_name, owner_username, 1 if password_hash else 0, 
-              password_hash, current_time, current_time))
+              password_hash, current_time, current_time, map_filename))
 
 def get_room(room_id: str) -> Optional[Dict[str, Any]]:
     """Get room metadata"""
@@ -134,6 +134,8 @@ def get_room(room_id: str) -> Optional[Dict[str, Any]]:
         cursor.execute("SELECT * FROM rooms WHERE room_id = ?", (room_id,))
         row = cursor.fetchone()
         if row:
+            # SQLite Row objects don't have .get(), use dictionary access
+            # map_filename column exists due to migration, may be None if not set
             return {
                 'room_id': row['room_id'],
                 'name': row['name'],
@@ -142,7 +144,8 @@ def get_room(room_id: str) -> Optional[Dict[str, Any]]:
                 'password_hash': row['password_hash'],
                 'created_at': row['created_at'],
                 'last_activity': row['last_activity'],
-                'version': row['version']
+                'version': row['version'],
+                'map_filename': row['map_filename']  # Column exists due to migration, may be None
             }
         return None
     finally:
@@ -206,7 +209,8 @@ def get_room_state(room_id: str) -> Dict[str, Any]:
             'owner': room['owner'],
             'has_password': room['has_password'],
             'password_hash': room['password_hash'],
-            'version': room['version']
+            'version': room['version'],
+            'map_filename': room.get('map_filename')
         }
     finally:
         conn.close()
@@ -218,6 +222,14 @@ def update_room_activity(room_id: str) -> None:
         cursor.execute("""
             UPDATE rooms SET last_activity = ? WHERE room_id = ?
         """, (get_current_time(), room_id))
+
+def update_room_map(room_id: str, map_filename: Optional[str]) -> None:
+    """Update room's map filename"""
+    with db_transaction() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE rooms SET map_filename = ? WHERE room_id = ?
+        """, (map_filename, room_id))
 
 def increment_room_version(room_id: str) -> int:
     """Increment room version and return new version"""

@@ -1191,7 +1191,17 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
 
   const getHexAtKey = useCallback((key) => hexesByKey.get(key), [hexesByKey]);
   const lastColoredHexDetails = lastColoredHexKey ? getHexAtKey(lastColoredHexKey) : null;
-  const imageUrl = '/static/Map.png';
+  
+  // Use room-specific map if available, fallback to default
+  const imageUrl = useMemo(() => {
+    const roomId = roomData?.roomId || roomData?.room_id;
+    const mapFilename = roomData?.mapFilename || roomData?.map_filename;
+    if (roomId && mapFilename) {
+      // Cache-bust based on filename (stable across renders, changes on upload)
+      return `/api/room-map/${roomId}?v=${encodeURIComponent(mapFilename)}`;
+    }
+    return '/static/Map.png';
+  }, [roomData]);
 
   // Panning event handlers
   const handlePanningStart = useCallback(() => {

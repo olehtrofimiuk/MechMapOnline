@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -19,7 +19,8 @@ import {
   DialogContent,
   DialogActions,
   FormControlLabel,
-  Checkbox
+  Checkbox,
+  LinearProgress
 } from '@mui/material';
 import PersonIcon from '@mui/icons-material/Person';
 import GroupIcon from '@mui/icons-material/Group';
@@ -47,6 +48,12 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [availableRooms, setAvailableRooms] = useState([]);
   const [isConnected, setIsConnected] = useState(false);
+  const [mapFile, setMapFile] = useState(null);
+  const mapFileRef = useRef(null);
+  const [uploadedMapFilename, setUploadedMapFilename] = useState(null);
+  const [createdRoomId, setCreatedRoomId] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
     if (!socket) return;
@@ -77,18 +84,29 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
     // Listen for room creation success
     socket.on('room_created', (data) => {
       setIsLoading(false);
+      setCreatedRoomId(data.room_id);
+
       setSuccess(`Room "${data.room_name}" (${data.room_id}) created successfully!`);
-      setError('');
-      onRoomJoined({
-        roomId: data.room_id,
-        roomName: data.room_name,
-        userName: data.user_name,
-        is_owner: data.is_owner,
-        hexData: data.hex_data,
-        lines: data.lines,
-        units: data.units || [],
-        users: data.users
-      });
+      setMapFile(null);
+      mapFileRef.current = null;
+      setUploadedMapFilename(null);
+      setUploadProgress(0);
+      setIsUploading(false);
+
+      // Small delay to show success message before navigating
+      setTimeout(() => {
+        onRoomJoined({
+          roomId: data.room_id,
+          roomName: data.room_name,
+          userName: data.user_name,
+          is_owner: data.is_owner,
+          hexData: data.hex_data,
+          lines: data.lines,
+          units: data.units || [],
+          users: data.users,
+          map_filename: data.map_filename
+        });
+      }, 500);
     });
 
     // Listen for room join success
@@ -104,7 +122,8 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
         hexData: data.hex_data,
         lines: data.lines,
         units: data.units || [],
-        users: data.users
+        users: data.users,
+        map_filename: data.map_filename
       });
     });
 
@@ -168,6 +187,15 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
       return;
     }
 
+    if (isUploading) {
+      setError('Map is still uploading. Please wait until it reaches 100%.');
+      return;
+    }
+    if (mapFile && !uploadedMapFilename) {
+      setError('Map was selected but not uploaded yet. Please wait for upload to finish.');
+      return;
+    }
+
     setIsLoading(true);
     setError('');
     setSuccess('');
@@ -175,8 +203,83 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
     socket.emit('create_room', {
       user_name: authState.isAuthenticated ? authState.username : userName.trim(),
       room_name: roomName.trim() || 'Unnamed Room',
-      room_password: roomPassword.trim() || null
+      room_password: roomPassword.trim() || null,
+      map_filename: uploadedMapFilename
     });
+  };
+
+  const handleMapFileChange = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        setError('Please select an image file');
+        return;
+      }
+      // Validate file size (max 100MB)
+      if (file.size > 100 * 1024 * 1024) {
+        setError('Map file must be less than 100MB');
+        return;
+      }
+      setMapFile(file);
+      mapFileRef.current = file;
+      setUploadedMapFilename(null);
+      setIsUploading(true);
+      setUploadProgress(0);
+      setError('');
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const xhr = new XMLHttpRequest();
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable && e.total > 0) {
+          const percentComplete = Math.min((e.loaded / e.total) * 100, 99);
+          setUploadProgress(percentComplete);
+        }
+      });
+
+      xhr.addEventListener('load', () => {
+        setIsUploading(false);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const responseData = JSON.parse(xhr.responseText);
+            setUploadedMapFilename(responseData.map_filename);
+          } catch (e) {
+            setError('Map uploaded but server response was invalid.');
+            setUploadedMapFilename(null);
+            return;
+          }
+          setUploadProgress(100);
+          setSuccess('Map uploaded and ready. Now create the room.');
+        } else {
+          setUploadedMapFilename(null);
+          setUploadProgress(0);
+          if (xhr.status === 413) {
+            setError('Map upload failed: HTTP 413 (Payload Too Large). Server limit too low.');
+          } else if (xhr.status === 400) {
+            try {
+              const errorData = JSON.parse(xhr.responseText);
+              setError(`Map upload failed: ${errorData.detail || 'HTTP 400'}`);
+            } catch (e) {
+              setError('Map upload failed: HTTP 400');
+            }
+          } else {
+            setError(`Map upload failed: HTTP ${xhr.status}`);
+          }
+        }
+      });
+
+      xhr.addEventListener('error', () => {
+        setIsUploading(false);
+        setUploadedMapFilename(null);
+        setUploadProgress(0);
+        setError('Map upload failed: Network error');
+      });
+
+      xhr.open('POST', '/api/upload-map-temp');
+      xhr.send(formData);
+    }
   };
 
   const handleJoinRoom = (targetRoomId = null, password = '') => {
@@ -447,6 +550,65 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
               startAdornment: <LockIcon sx={{ mr: 1, color: 'text.secondary' }} />
             }}
           />
+        </Box>
+
+        {/* Map Upload Input */}
+        <Box sx={{ mb: 2 }}>
+          <input
+            accept="image/*"
+            style={{ display: 'none' }}
+            id="map-file-upload"
+            type="file"
+            onChange={handleMapFileChange}
+            disabled={isLoading || !isConnected}
+          />
+          <label htmlFor="map-file-upload">
+            <Button
+              variant="outlined"
+              component="span"
+              fullWidth
+              disabled={isLoading || !isConnected}
+              sx={{ mb: 1 }}
+            >
+              {mapFile ? `Map Selected: ${mapFile.name}` : 'Upload Map Image (Optional)'}
+            </Button>
+          </label>
+          {mapFile && (
+            <Button
+              variant="text"
+              size="small"
+              onClick={() => {
+                setMapFile(null);
+                mapFileRef.current = null;
+                setUploadedMapFilename(null);
+                setUploadProgress(0);
+                setIsUploading(false);
+              }}
+              sx={{ mt: 0.5 }}
+            >
+              Remove Map
+            </Button>
+          )}
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+            Upload a background map image for this room (PNG, JPG, GIF, WebP - max 100MB)
+          </Typography>
+          {isUploading && (
+            <Box sx={{ mt: 1 }}>
+              <LinearProgress 
+                variant="determinate" 
+                value={uploadProgress} 
+                sx={{ mb: 0.5 }}
+              />
+              <Typography variant="caption" color="text.secondary">
+                Uploading map: {Math.round(uploadProgress)}%
+              </Typography>
+            </Box>
+          )}
+          {!isUploading && uploadedMapFilename && (
+            <Typography variant="caption" color="success.main" display="block" sx={{ mt: 1 }}>
+              Map uploaded: {uploadedMapFilename}
+            </Typography>
+          )}
         </Box>
 
         {/* Error/Success Messages */}
