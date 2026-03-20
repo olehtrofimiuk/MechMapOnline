@@ -20,6 +20,26 @@ prepend_path() {
   esac
 }
 
+readonly LOCAL_BIN_PATH_MARKER="# mechmap-bootstrap: ~/.local/bin (uv default install location)"
+
+ensure_bashrc_includes_local_bin() {
+  local bashrc="${HOME}/.bashrc"
+  if [[ -f "${bashrc}" ]] && grep -Fq "${LOCAL_BIN_PATH_MARKER}" "${bashrc}"; then
+    return 0
+  fi
+  {
+    echo ""
+    echo "${LOCAL_BIN_PATH_MARKER}"
+    echo "if [[ -d \"\${HOME}/.local/bin\" ]]; then"
+    echo "  case \":\${PATH:-}:\" in"
+    echo "    *\":\${HOME}/.local/bin\":*) ;;"
+    echo "    *) export PATH=\"\${HOME}/.local/bin:\${PATH:-}\" ;;"
+    echo "  esac"
+    echo "fi"
+  } >>"${bashrc}"
+  echo "bootstrap-backend-linux.sh: updated ${bashrc} so ~/.local/bin is on PATH in new shells. This shell: source ~/.bashrc" >&2
+}
+
 ensure_uv() {
   if command -v uv >/dev/null 2>&1; then
     return 0
@@ -47,13 +67,15 @@ ensure_uv() {
 ensure_uv
 echo "Syncing Python environment in ${BACKEND_DIR} ..." >&2
 (cd "${BACKEND_DIR}" && uv sync --frozen)
+ensure_bashrc_includes_local_bin
 echo "Done. Activate with: source ${BACKEND_DIR}/.venv/bin/activate" >&2
 cat >&2 <<EOF
 
 Start the API (no uv on PATH needed — uses the venv you just synced):
   cd ${BACKEND_DIR} && .venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
 
-If you prefer \`uv run\`, add uv to this shell first (install puts it in ~/.local/bin):
-  export PATH="\${HOME}/.local/bin:\${PATH}"
+\`uv\` is on PATH in new login/interactive shells after this script (snippet in ~/.bashrc). In this shell, either:
+  source ~/.bashrc
+or:
   cd ${BACKEND_DIR} && uv run uvicorn main:app --host 0.0.0.0 --port 8000
 EOF

@@ -49,7 +49,7 @@ A real-time collaborative hex grid mapping tool for tabletop RPGs, strategy game
    ./scripts/bootstrap-backend-linux.sh
    ```
    This creates `backend/.venv` and installs dependencies from `uv.lock`.  
-   On a fresh Linux server, `uv` is installed under `~/.local/bin`, which is often not on your `PATH` in the next shell — so `uv` may say “command not found” until you run `export PATH="$HOME/.local/bin:$PATH"` (or log out and back in after adding that to `~/.bashrc`). **You do not need `uv` on `PATH` to run the server:** after bootstrap, use `backend/.venv/bin/uvicorn` (see *Running the Application* below).  
+   The script also appends a small snippet to `~/.bashrc` so `~/.local/bin` (where the `uv` installer puts binaries) is on `PATH` in new interactive bash sessions; run `source ~/.bashrc` in an existing SSH session, or use `backend/.venv/bin/uvicorn` to start the API without needing `uv` on `PATH` (see *Running the Application*). If you use a shell other than bash, add the same `PATH` export to that shell’s rc file.  
    If you cannot use uv, you can install from the pinned export:  
    `python -m venv .venv && source .venv/bin/activate` (or `.\.venv\Scripts\activate` on Windows), then `pip install -r requirements.txt`.
 
@@ -75,6 +75,17 @@ A real-time collaborative hex grid mapping tool for tabletop RPGs, strategy game
    .venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
    ```
    The server will start on `http://localhost:8000`
+
+   **VPS with a domain (nginx on port 80):** with uvicorn bound to the loopback interface only,
+   install the bundled reverse proxy config (Debian/Ubuntu; requires root):
+
+   ```bash
+   # from repo root — use your real hostname(s)
+   sudo ./scripts/setup-nginx-linux.sh "mechmaponline.fun www.mechmaponline.fun"
+   ```
+
+   Optional: `MECHMAP_UPSTREAM=127.0.0.1:8000` if uvicorn listens elsewhere. Template: `scripts/nginx/mechmaponline.conf.template`.  
+   Add your production origin to `allow_origins` in `backend/main.py` if it is not already listed.
 
 2. **Start the frontend development server**
    ```bash
