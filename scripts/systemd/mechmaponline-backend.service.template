@@ -1,0 +1,19 @@
+[Unit]
+Description=MechMapOnline FastAPI backend (uvicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__SERVICE_USER__
+Group=__SERVICE_GROUP__
+WorkingDirectory=__BACKEND_DIR__
+Environment=PYTHONUNBUFFERED=1
+ExecStart=__UVICORN_BIN__ main:app --host __BIND_HOST__ --port __BIND_PORT__
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

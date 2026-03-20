@@ -87,6 +87,14 @@ A real-time collaborative hex grid mapping tool for tabletop RPGs, strategy game
    Optional: `MECHMAP_UPSTREAM=127.0.0.1:8000` if uvicorn listens elsewhere. Template: `scripts/nginx/mechmaponline.conf.template`.  
    Add your production origin to `allow_origins` in `backend/main.py` if it is not already listed.
 
+   **systemd autostart (backend on boot):** after `./scripts/bootstrap-backend-linux.sh`, install and enable the unit (requires root; needs systemd, e.g. typical VPS — not all WSL setups):
+
+   ```bash
+   sudo ./scripts/install-systemd-service-linux.sh
+   ```
+
+   Optional: `MECHMAP_BIND_HOST=0.0.0.0` if you are not using a local reverse proxy. Defaults bind to `127.0.0.1:8000` under the user that invoked `sudo` (override with `MECHMAP_SERVICE_USER`).
+
 2. **Start the frontend development server**
    ```bash
    cd frontend
