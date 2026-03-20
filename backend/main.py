@@ -1334,7 +1334,7 @@ async def read_root(request: Request):
     from fastapi.responses import FileResponse
     import os
     
-    build_path = os.path.join(os.path.dirname(__file__), "..", "client", "build", "index.html")
+    build_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "build", "index.html")
     if os.path.exists(build_path):
         return FileResponse(build_path)
     else:
@@ -1584,19 +1584,19 @@ async def get_rooms_status():
 # Mount static files for the React app
 try:
     import os
-    client_build_path = os.path.join(os.path.dirname(__file__), "..", "client", "build")
-    if os.path.exists(client_build_path):
+    frontend_build_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "build")
+    if os.path.exists(frontend_build_path):
         # Serve React app assets (Vite puts JS/CSS in assets/)
-        assets_path = os.path.join(client_build_path, "assets")
+        assets_path = os.path.join(frontend_build_path, "assets")
         if os.path.exists(assets_path):
             app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
         
         # Serve React app static files (for public/static folder contents)
-        static_path = os.path.join(client_build_path, "static")
+        static_path = os.path.join(frontend_build_path, "static")
         if os.path.exists(static_path):
             app.mount("/static", StaticFiles(directory=static_path), name="static")
         
-        logging.info(f"Serving React app from: {client_build_path}")
+        logging.info(f"Serving React app from: {frontend_build_path}")
     else:
         # Fallback to server static files
         app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -1623,15 +1623,15 @@ async def serve_react_app(full_path: str, request: Request):
         raise HTTPException(status_code=404, detail="Not found")
     
     # Check if the requested path is a file in the build directory
-    client_build_path = os.path.join(os.path.dirname(__file__), "..", "client", "build")
-    file_path = os.path.join(client_build_path, full_path)
+    frontend_build_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "build")
+    file_path = os.path.join(frontend_build_path, full_path)
     
     # If it's a file and exists, serve it (for favicon, manifest, etc.)
     if os.path.exists(file_path) and os.path.isfile(file_path):
         return FileResponse(file_path)
     
     # Otherwise serve index.html for React routing
-    build_path = os.path.join(client_build_path, "index.html")
+    build_path = os.path.join(frontend_build_path, "index.html")
     if os.path.exists(build_path):
         return FileResponse(build_path)
     else:

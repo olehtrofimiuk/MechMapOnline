@@ -40,7 +40,7 @@ A real-time collaborative hex grid mapping tool for tabletop RPGs, strategy game
 
 2. **Set up the Python backend**
    ```bash
-   cd server
+   cd backend
    python -m venv venv
    
    # On Windows:
@@ -53,7 +53,7 @@ A real-time collaborative hex grid mapping tool for tabletop RPGs, strategy game
 
 3. **Set up the React frontend**
    ```bash
-   cd ../client
+   cd ../frontend
    npm install
    ```
 
@@ -61,7 +61,7 @@ A real-time collaborative hex grid mapping tool for tabletop RPGs, strategy game
 
 1. **Start the backend server**
    ```bash
-   cd server
+   cd backend
    # Activate virtual environment if not already active
    venv\Scripts\activate  # Windows
    # source venv/bin/activate  # macOS/Linux
@@ -72,7 +72,7 @@ A real-time collaborative hex grid mapping tool for tabletop RPGs, strategy game
 
 2. **Start the frontend development server**
    ```bash
-   cd client
+   cd frontend
    npm start
    ```
    The client will start on `http://localhost:3000`
@@ -136,14 +136,14 @@ A real-time collaborative hex grid mapping tool for tabletop RPGs, strategy game
 The server runs on `localhost:8000` by default. Key features:
 
 - **Auto-save**: Rooms save automatically every 10 seconds
-- **Data Persistence**: Room data stored in `server/room_data/rooms.json`
-- **User Database**: User accounts stored in `server/room_data/users.json`
+- **Data Persistence**: Room data stored in `backend/room_data/rooms.json`
+- **User Database**: User accounts stored in `backend/room_data/users.json`
 - **CORS**: Configured for local development
 
 ### Client Configuration
-The React client connects to `localhost:8000` by default. Update the server URL in:
-- `client/src/components/MainWindow.jsx`
-- `client/src/components/AuthManager.jsx`
+The React frontend connects to `localhost:8000` by default. Update the server URL in:
+- `frontend/src/components/MainWindow.jsx`
+- `frontend/src/components/AuthManager.jsx`
 
 ## 🛡️ Security Notes
 
@@ -169,7 +169,7 @@ The React client connects to `localhost:8000` by default. Update the server URL 
 
 ```
 MechMapOnline/
-├── client/                 # React frontend
+├── frontend/               # React frontend
 │   ├── src/
 │   │   ├── components/     # React components
 │   │   │   ├── AuthManager.jsx     # Login/register interface
@@ -181,7 +181,7 @@ MechMapOnline/
 │   │   │   └── Arrow.jsx           # Arrow indicators
 │   │   └── package.json
 │   └── public/
-├── server/                 # Python FastAPI backend
+├── backend/                # Python FastAPI backend
 │   ├── main.py            # Main server application
 │   ├── room_data/         # Persistent data storage
 │   │   ├── rooms.json     # Room data (auto-generated)

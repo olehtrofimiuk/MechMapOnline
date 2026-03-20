@@ -4,14 +4,14 @@ echo.
 
 :: Start the server in a new window
 echo Starting server...
-start "Hex Map Server" cmd /k "cd server && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+start "Hex Map Server" cmd /k "cd backend && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
 
 :: Wait a moment for the server to start
 timeout /t 3 /nobreak > nul
 
 :: Start the client
 echo Starting client...
-start "Hex Map Client" cmd /k "cd client && npm start"
+start "Hex Map Client" cmd /k "cd frontend && npm start"
 
 echo.
 echo Both server and client are starting...
