@@ -26,7 +26,8 @@ A real-time collaborative hex grid mapping tool for tabletop RPGs, strategy game
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Python 3.8+
+- Python 3.10+
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) (Python package manager)
 - Node.js 16+
 - A modern web browser
 
@@ -41,15 +42,15 @@ A real-time collaborative hex grid mapping tool for tabletop RPGs, strategy game
 2. **Set up the Python backend**
    ```bash
    cd backend
-   python -m venv venv
-   
-   # On Windows:
-   venv\Scripts\activate
-   # On macOS/Linux:
-   source venv/bin/activate
-   
-   pip install fastapi uvicorn python-socketio python-multipart
+   uv sync
    ```
+   **Linux (one step):** from the repo root, install uv if missing and sync the venv:
+   ```bash
+   ./scripts/bootstrap-backend-linux.sh
+   ```
+   This creates `backend/.venv` and installs dependencies from `uv.lock`.  
+   If you cannot use uv, you can install from the pinned export:  
+   `python -m venv .venv && source .venv/bin/activate` (or `.\.venv\Scripts\activate` on Windows), then `pip install -r requirements.txt`.
 
 3. **Set up the React frontend**
    ```bash
@@ -57,16 +58,15 @@ A real-time collaborative hex grid mapping tool for tabletop RPGs, strategy game
    npm install
    ```
 
+**Python dependencies:** declare them in `backend/pyproject.toml`. After edits, run `uv lock` in `backend/`. To refresh the optional pip-compatible `requirements.txt` (for environments without uv), run:
+`uv export --no-hashes --no-dev -o requirements.txt` from `backend/`.
+
 ### Running the Application
 
 1. **Start the backend server**
    ```bash
    cd backend
-   # Activate virtual environment if not already active
-   venv\Scripts\activate  # Windows
-   # source venv/bin/activate  # macOS/Linux
-   
-   python main.py
+   uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
    ```
    The server will start on `http://localhost:8000`
 

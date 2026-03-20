@@ -4,7 +4,7 @@ echo.
 
 :: Start the server in a new window
 echo Starting server...
-start "Hex Map Server" cmd /k "cd backend && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+start "Hex Map Server" cmd /k "cd /d backend && uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
 
 :: Wait a moment for the server to start
 timeout /t 3 /nobreak > nul
