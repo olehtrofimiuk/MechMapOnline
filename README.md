@@ -49,6 +49,7 @@ A real-time collaborative hex grid mapping tool for tabletop RPGs, strategy game
    ./scripts/bootstrap-backend-linux.sh
    ```
    This creates `backend/.venv` and installs dependencies from `uv.lock`.  
+   On a fresh Linux server, `uv` is installed under `~/.local/bin`, which is often not on your `PATH` in the next shell — so `uv` may say “command not found” until you run `export PATH="$HOME/.local/bin:$PATH"` (or log out and back in after adding that to `~/.bashrc`). **You do not need `uv` on `PATH` to run the server:** after bootstrap, use `backend/.venv/bin/uvicorn` (see *Running the Application* below).  
    If you cannot use uv, you can install from the pinned export:  
    `python -m venv .venv && source .venv/bin/activate` (or `.\.venv\Scripts\activate` on Windows), then `pip install -r requirements.txt`.
 
@@ -67,6 +68,11 @@ A real-time collaborative hex grid mapping tool for tabletop RPGs, strategy game
    ```bash
    cd backend
    uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+   ```
+   On a VPS (or if `uv` is not on `PATH`), use the synced venv directly — omit `--reload` in production:
+   ```bash
+   cd backend
+   .venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
    ```
    The server will start on `http://localhost:8000`
 

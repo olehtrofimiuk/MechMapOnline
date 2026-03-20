@@ -48,4 +48,12 @@ ensure_uv
 echo "Syncing Python environment in ${BACKEND_DIR} ..." >&2
 (cd "${BACKEND_DIR}" && uv sync --frozen)
 echo "Done. Activate with: source ${BACKEND_DIR}/.venv/bin/activate" >&2
-echo "Or run: cd ${BACKEND_DIR} && uv run uvicorn main:app --host 0.0.0.0 --port 8000" >&2
+cat >&2 <<EOF
+
+Start the API (no uv on PATH needed — uses the venv you just synced):
+  cd ${BACKEND_DIR} && .venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+
+If you prefer \`uv run\`, add uv to this shell first (install puts it in ~/.local/bin):
+  export PATH="\${HOME}/.local/bin:\${PATH}"
+  cd ${BACKEND_DIR} && uv run uvicorn main:app --host 0.0.0.0 --port 8000
+EOF
