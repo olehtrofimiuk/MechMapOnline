@@ -11,11 +11,13 @@ import PublishIcon from '@mui/icons-material/Publish';
 import HelpIcon from '@mui/icons-material/Help';
 import CameraAltIcon from '@mui/icons-material/CameraAlt';
 import SpeedIcon from '@mui/icons-material/Speed';
+import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
 
 import HexGrid from './HexGrid';
 import RoomManager from './RoomManager';
 import AuthManager from './AuthManager';
 import AdminPanel from './AdminPanel';
+import UserDatabaseDialog from './UserDatabaseDialog';
 import FPSCounter from './FPSCounter';
 
 const MainWindow = () => {
@@ -35,6 +37,7 @@ const MainWindow = () => {
     });
     const [showBackground, setShowBackground] = useState(true);
     const [showFpsCounter, setShowFpsCounter] = useState(false);
+    const [userDatabaseOpen, setUserDatabaseOpen] = useState(false);
     const [adminData, setAdminData] = useState({
         availableRooms: [],
         roomToggles: {},
@@ -925,6 +928,34 @@ const MainWindow = () => {
                         Help
                     </Button>
 
+                    {authState.isAdmin && authState.token && (
+                        <Button
+                            variant="outlined"
+                            size="small"
+                            onClick={() => setUserDatabaseOpen(true)}
+                            startIcon={<ManageAccountsIcon />}
+                            sx={{ 
+                                border: '1px solid rgba(128, 0, 255, 0.6)',
+                                color: '#c4a5ff',
+                                background: 'rgba(128, 0, 255, 0.12)',
+                                fontFamily: "'Orbitron', monospace",
+                                fontWeight: 600,
+                                textTransform: 'uppercase',
+                                fontSize: '10px',
+                                minWidth: 'auto',
+                                px: 1,
+                                transition: 'all 0.3s ease',
+                                '&:hover': { 
+                                    background: 'rgba(128, 0, 255, 0.22)',
+                                    borderColor: '#c4a5ff',
+                                    boxShadow: '0 0 12px rgba(128, 0, 255, 0.35)'
+                                }
+                            }}
+                        >
+                            Users
+                        </Button>
+                    )}
+
                     <Button
                         variant="outlined"
                         size="small"
@@ -1124,6 +1155,14 @@ const MainWindow = () => {
                     socket={socket.current}
                 />
             )}
+
+            <UserDatabaseDialog
+                open={userDatabaseOpen}
+                onClose={() => setUserDatabaseOpen(false)}
+                authToken={authState.token}
+                apiBaseUrl={apiBaseUrl}
+                currentUsername={authState.username}
+            />
 
 
             {/* Activity Notifications */}

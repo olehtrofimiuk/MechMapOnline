@@ -51,6 +51,15 @@ def update_user_last_login(username: str) -> None:
             UPDATE users SET last_login = ? WHERE username = ?
         """, (get_current_time(), username))
 
+def set_user_admin(username: str, is_admin: bool) -> None:
+    """Set admin flag for a user."""
+    with db_transaction() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE users SET is_admin = ? WHERE username = ?",
+            (1 if is_admin else 0, username),
+        )
+
 def get_all_users() -> Dict[str, Dict[str, Any]]:
     """Get all users as a dictionary"""
     conn = get_db_connection()

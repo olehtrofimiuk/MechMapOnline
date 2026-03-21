@@ -24,7 +24,7 @@ from pydantic import BaseModel
 # Database imports
 from db import init_database, database_exists, db_transaction
 from repository import (
-    create_user, get_user, update_user_last_login, get_all_users,
+    create_user, get_user, update_user_last_login, get_all_users, set_user_admin,
     create_token, get_token_username, delete_token,
     create_room, get_room, get_room_state, update_room_activity, 
     increment_room_version, delete_room, get_all_rooms,
@@ -143,6 +143,22 @@ def is_admin_user(username: str) -> bool:
         # Fallback to in-memory for backward compatibility
         return users_db.get(username, {}).get('is_admin', False)
     return user.get('is_admin', False)
+
+def require_admin_bearer(request: Request) -> str:
+    """Return authenticated username if Bearer token belongs to an admin."""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        raise HTTPException(status_code=401, detail="No valid token provided")
+    token = auth_header.split(' ')[1]
+    username = get_user_from_token(token)
+    if not username or not get_user(username):
+        raise HTTPException(status_code=401, detail="Invalid token")
+    if not is_admin_user(username):
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    return username
+
+class AdminUserUpdate(BaseModel):
+    is_admin: bool
 
 def create_admin_room(room_name="Admin Room", owner=None):
     """Create a new admin room with initial state"""
@@ -1476,7 +1492,7 @@ async def promote_to_admin(request: Request):
         token = auth_header.split(' ')[1]
         requesting_username = get_user_from_token(token)
         
-        if not requesting_username or requesting_username not in users_db:
+        if not requesting_username or not get_user(requesting_username):
             raise HTTPException(status_code=401, detail="Invalid token")
         
         # Allow if requesting user is already admin OR if no admin exists yet
@@ -1492,14 +1508,10 @@ async def promote_to_admin(request: Request):
         if not target_username or not target_user:
             raise HTTPException(status_code=404, detail="User not found")
         
-        # Promote user to admin (update in database)
-        with db_transaction() as conn:
-            cursor = conn.cursor()
-            cursor.execute("UPDATE users SET is_admin = 1 WHERE username = ?", (target_username,))
+        set_user_admin(target_username, True)
         
         # Update cache
-        users_db[target_username] = target_user
-        users_db[target_username]['is_admin'] = True
+        users_db[target_username] = get_user(target_username)
         
         logging.info(f"User {target_username} promoted to admin by {requesting_username}")
         
@@ -1514,6 +1526,43 @@ async def promote_to_admin(request: Request):
     except Exception as e:
         logging.error(f"Admin promotion error: {e}")
         raise HTTPException(status_code=500, detail="Admin promotion failed")
+
+@app.get("/api/admin/users")
+async def list_users_for_admin(request: Request):
+    """List registered users (admin only). Omits password hashes."""
+    require_admin_bearer(request)
+    all_users = get_all_users()
+    rows = []
+    for _, user_row in sorted(all_users.items(), key=lambda item: item[0].lower()):
+        rows.append({
+            "username": user_row["username"],
+            "is_admin": user_row.get("is_admin", False),
+            "created_at": user_row.get("created_at"),
+            "last_login": user_row.get("last_login"),
+        })
+    return {"users": rows}
+
+@app.patch("/api/admin/users/{username}")
+async def update_user_admin_flag(username: str, body: AdminUserUpdate, request: Request):
+    """Set is_admin for a user (admin only). Cannot remove the last admin."""
+    admin_username = require_admin_bearer(request)
+    target = get_user(username)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not body.is_admin:
+        admin_count = sum(1 for u in get_all_users().values() if u.get("is_admin"))
+        if target.get("is_admin") and admin_count <= 1:
+            raise HTTPException(status_code=400, detail="Cannot remove the last admin")
+    set_user_admin(username, body.is_admin)
+    updated = get_user(username)
+    if updated:
+        users_db[username] = updated
+    logging.info(f"User {username} is_admin set to {body.is_admin} by {admin_username}")
+    return {
+        "message": "User updated",
+        "username": username,
+        "is_admin": body.is_admin,
+    }
 
 @app.get("/api/verify-token")
 async def verify_token(request: Request):

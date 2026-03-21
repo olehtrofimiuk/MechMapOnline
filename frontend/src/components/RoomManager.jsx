@@ -28,9 +28,18 @@ import AddIcon from '@mui/icons-material/Add';
 import LoginIcon from '@mui/icons-material/Login';
 import LogoutIcon from '@mui/icons-material/Logout';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
+import UserDatabaseDialog from './UserDatabaseDialog';
 import LockIcon from '@mui/icons-material/Lock';
 import DeleteIcon from '@mui/icons-material/Delete';
 import IconButton from '@mui/material/IconButton';
+
+const getApiBaseUrl = () => {
+  if (import.meta.env.MODE === 'production') {
+    return window.location.origin;
+  }
+  return 'http://localhost:8000';
+};
 
 const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
   const [userName, setUserName] = useState('');
@@ -54,6 +63,7 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
   const [createdRoomId, setCreatedRoomId] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
+  const [userDatabaseOpen, setUserDatabaseOpen] = useState(false);
 
   useEffect(() => {
     if (!socket) return;
@@ -464,7 +474,7 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
         </Typography>
 
         {/* User Status */}
-        <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1, mb: 2 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
           <Chip 
             label={isConnected ? 'Connected' : 'Connecting...'} 
             color={isConnected ? 'success' : 'warning'}
@@ -496,7 +506,36 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
               icon={<AdminPanelSettingsIcon />}
             />
           )}
+
+          {authState.isAdmin && authState.token && (
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => setUserDatabaseOpen(true)}
+              startIcon={<ManageAccountsIcon />}
+              sx={{
+                textTransform: 'none',
+                borderColor: 'secondary.main',
+                color: 'secondary.light',
+                fontWeight: 600,
+                '&:hover': {
+                  borderColor: 'secondary.light',
+                  backgroundColor: 'action.hover'
+                }
+              }}
+            >
+              User database
+            </Button>
+          )}
         </Box>
+
+        <UserDatabaseDialog
+          open={userDatabaseOpen}
+          onClose={() => setUserDatabaseOpen(false)}
+          authToken={authState.token}
+          apiBaseUrl={getApiBaseUrl()}
+          currentUsername={authState.username}
+        />
 
         {/* User Name Input - Only for anonymous users */}
         {!authState.isAuthenticated && (

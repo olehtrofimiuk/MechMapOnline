@@ -8,8 +8,7 @@ import {
     Chip,
     Tooltip,
     TextField,
-    Button,
-    Divider
+    Button
 } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
@@ -564,7 +563,7 @@ const AdminPanel = ({ roomData, availableRooms, roomToggles, socket }) => {
                                         fontFamily: "'Rajdhani', monospace",
                                         fontWeight: 600
                                     }}>
-                                        Total АХУЙ 240:
+                                        Total:
                                     </Typography>
                                     <Typography variant="body1" sx={{
                                         color: 'var(--neotech-warning)',
