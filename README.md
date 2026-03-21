@@ -56,13 +56,22 @@ A real-time collaborative hex grid mapping tool for tabletop RPGs, strategy game
 3. **Set up the React frontend**
    ```bash
    cd ../frontend
-   npm install
+   pnpm install
    ```
+   Production builds write the SPA into **`backend/web/`** (next to the Python app) so the server can run **standalone** without a separate static host. From the repo root:
+   ```bash
+   ./scripts/build-ui.sh
+   ```
+   Or: `cd frontend && pnpm run build`.
+
+   **`backend/web/` is checked in** so production can deploy with `git pull` only (no Node build on the server). After UI changes, run `./scripts/build-ui.sh` locally and commit the updated `backend/web/` files.
 
 **Python dependencies:** declare them in `backend/pyproject.toml`. After edits, run `uv lock` in `backend/`. To refresh the optional pip-compatible `requirements.txt` (for environments without uv), run:
 `uv export --no-hashes --no-dev -o requirements.txt` from `backend/`.
 
 ### Running the Application
+
+**Production / standalone:** build the UI first so `backend/web/` contains `index.html` and `assets/`, then run uvicorn from `backend/` only. The API and the browser client are served from the same origin (port 8000 by default).
 
 1. **Start the backend server**
    ```bash
@@ -95,15 +104,16 @@ A real-time collaborative hex grid mapping tool for tabletop RPGs, strategy game
 
    Optional: `MECHMAP_BIND_HOST=0.0.0.0` if you are not using a local reverse proxy. Defaults bind to `127.0.0.1:8000` under the user that invoked `sudo` (override with `MECHMAP_SERVICE_USER`).
 
-2. **Start the frontend development server**
+2. **Start the frontend development server** (optional; hot reload — API still on 8000 via Vite proxy)
    ```bash
    cd frontend
-   npm start
+   pnpm dev
    ```
-   The client will start on `http://localhost:3000`
+   The dev client runs on `http://localhost:3000` and proxies `/api` and `/socket.io` to the backend.
 
 3. **Open your browser**
-   Navigate to `http://localhost:3000` to access the application
+   - With **Vite dev** (step 2): `http://localhost:3000`
+   - **Standalone** (backend only, after `./scripts/build-ui.sh`): `http://localhost:8000`
 
 ## 📖 How to Use
 

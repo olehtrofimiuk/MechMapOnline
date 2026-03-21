@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Install systemd unit for the MechMapOnline backend and enable it at boot.
 # Requires root. Use on Linux with systemd (typical VPS; WSL may need systemd enabled).
+# Build the SPA first so the service can serve the UI: ./scripts/build-ui.sh
 #
 # Usage (from repo root):
 #   sudo ./scripts/install-systemd-service-linux.sh

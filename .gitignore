@@ -1,6 +1,8 @@
 # Room data files
 backend/room_data/
 
+# Embedded UI source maps (rebuild locally if needed for debugging)
+backend/web/**/*.map
 
 # Python
 __pycache__/

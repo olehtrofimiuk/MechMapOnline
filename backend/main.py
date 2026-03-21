@@ -44,8 +44,20 @@ user_tokens: Dict[str, str] = {}  # token -> username
 admin_rooms: Dict[str, Dict[str, Any]] = {}  # admin_room_id -> admin_room_data
 
 # File paths
+BACKEND_DIR = Path(__file__).resolve().parent
 ROOMS_FILE = "room_data/rooms.json"
 USERS_FILE = "room_data/users.json"
+
+
+def resolve_frontend_build_path() -> Optional[str]:
+    """Embedded UI at backend/web (production); fallback to ../frontend/build for local dev."""
+    embedded = BACKEND_DIR / "web"
+    legacy = BACKEND_DIR.parent / "frontend" / "build"
+    if (embedded / "index.html").is_file():
+        return str(embedded)
+    if (legacy / "index.html").is_file():
+        return str(legacy)
+    return None
 
 # Unit icons directory (repo-local assets)
 UNIT_ICONS_DIR = Path(__file__).resolve().parent.parent / "assets"
@@ -1350,9 +1362,11 @@ async def read_root(request: Request):
     from fastapi.responses import FileResponse
     import os
     
-    build_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "build", "index.html")
-    if os.path.exists(build_path):
-        return FileResponse(build_path)
+    base = resolve_frontend_build_path()
+    if base:
+        build_path = os.path.join(base, "index.html")
+        if os.path.exists(build_path):
+            return FileResponse(build_path)
     else:
         # Fallback to template if build doesn't exist
         return templates.TemplateResponse(name="index.html", context={"request": request})
@@ -1630,11 +1644,11 @@ async def get_rooms_status():
     except Exception as e:
         return {"error": str(e)}
 
-# Mount static files for the React app
+# Mount static files for the React app (prefer backend/web after `pnpm run build` in frontend/)
 try:
     import os
-    frontend_build_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "build")
-    if os.path.exists(frontend_build_path):
+    frontend_build_path = resolve_frontend_build_path()
+    if frontend_build_path and os.path.isdir(frontend_build_path):
         # Serve React app assets (Vite puts JS/CSS in assets/)
         assets_path = os.path.join(frontend_build_path, "assets")
         if os.path.exists(assets_path):
@@ -1672,7 +1686,9 @@ async def serve_react_app(full_path: str, request: Request):
         raise HTTPException(status_code=404, detail="Not found")
     
     # Check if the requested path is a file in the build directory
-    frontend_build_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "build")
+    frontend_build_path = resolve_frontend_build_path()
+    if not frontend_build_path:
+        raise HTTPException(status_code=404, detail="React app not found")
     file_path = os.path.join(frontend_build_path, full_path)
     
     # If it's a file and exists, serve it (for favicon, manifest, etc.)

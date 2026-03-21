@@ -19,8 +19,11 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: 'build',
-    sourcemap: true,
+    // Emit into backend so a single backend folder can be deployed standalone (see README)
+    outDir: '../backend/web',
+    emptyOutDir: true,
+    // Omit maps so backend/web stays small when committed for fast deploy (use sourcemap: true locally to debug)
+    sourcemap: false,
   },
 });
 
