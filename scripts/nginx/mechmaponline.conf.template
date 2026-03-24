@@ -20,7 +20,8 @@ server {
     listen [::]:80;
     server_name __SERVER_NAME__;
 
-    client_max_body_size 25m;
+    # Match frontend map upload limit (100 MiB)
+    client_max_body_size 100m;
 
     location / {
         proxy_pass http://mechmap_backend;
