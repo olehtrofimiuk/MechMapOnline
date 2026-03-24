@@ -267,7 +267,7 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
           setUploadProgress(0);
           if (xhr.status === 413) {
             setError(
-              'Map upload failed: HTTP 413 (Payload Too Large). If the app sits behind nginx, set client_max_body_size to at least 100m for this site, then run nginx -t and reload nginx.'
+              'Map upload failed: HTTP 413 (proxy body limit). On the server nginx: set client_max_body_size 128m in the server/location that serves this site (repeat for the HTTPS block if certbot added one), then nginx -t and reload nginx. See: sudo nginx -T | grep client_max_body'
             );
           } else if (xhr.status === 400) {
             try {

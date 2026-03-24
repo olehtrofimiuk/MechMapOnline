@@ -1200,7 +1200,7 @@ const HexGrid = forwardRef(({ gridWidth = 32, gridHeight = 32, hexSize = 126, so
       // Cache-bust based on filename (stable across renders, changes on upload)
       return `/api/room-map/${roomId}?v=${encodeURIComponent(mapFilename)}`;
     }
-    return '/static/Map.png';
+    return '/static/map1.png';
   }, [roomData]);
 
   // Panning event handlers

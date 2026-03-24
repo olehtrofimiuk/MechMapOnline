@@ -20,12 +20,12 @@ server {
     listen [::]:80;
     server_name __SERVER_NAME__;
 
-    # Match frontend map upload limit (100 MiB)
-    client_max_body_size 100m;
+    # Above the UI max (100 MiB file) so multipart boundaries do not push the request over the limit
+    client_max_body_size 128m;
 
     location / {
-        # Redundant with server-level; ensures this location is not capped elsewhere
-        client_max_body_size 100m;
+        # Same limit on the location (must also appear on any separate SSL server {} certbot adds)
+        client_max_body_size 128m;
         proxy_pass http://mechmap_backend;
         proxy_http_version 1.1;
         proxy_set_header Host $host;

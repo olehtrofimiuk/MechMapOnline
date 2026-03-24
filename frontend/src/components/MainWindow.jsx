@@ -552,7 +552,7 @@ const MainWindow = () => {
                     };
 
                     // Try different approaches to load the image
-                    const mapUrl = window.location.origin + '/static/Map.png';
+                    const mapUrl = window.location.origin + '/static/map1.png';
                     img.src = mapUrl;
                 });
             };
@@ -569,7 +569,7 @@ const MainWindow = () => {
                     
                     imageElements.forEach(img => {
                         const href = img.getAttribute('href') || img.getAttribute('xlink:href');
-                        if (href && href.includes('Map.png')) {
+                        if (href && href.includes('map1.png')) {
                             img.setAttribute('href', mapDataUrl);
                             if (img.hasAttribute('xlink:href')) {
                                 img.setAttribute('xlink:href', mapDataUrl);
