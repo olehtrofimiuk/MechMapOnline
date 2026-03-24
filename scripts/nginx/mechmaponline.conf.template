@@ -24,6 +24,8 @@ server {
     client_max_body_size 100m;
 
     location / {
+        # Redundant with server-level; ensures this location is not capped elsewhere
+        client_max_body_size 100m;
         proxy_pass http://mechmap_backend;
         proxy_http_version 1.1;
         proxy_set_header Host $host;

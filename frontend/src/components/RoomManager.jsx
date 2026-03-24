@@ -266,7 +266,9 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
           setUploadedMapFilename(null);
           setUploadProgress(0);
           if (xhr.status === 413) {
-            setError('Map upload failed: HTTP 413 (Payload Too Large). Server limit too low.');
+            setError(
+              'Map upload failed: HTTP 413 (Payload Too Large). If the app sits behind nginx, set client_max_body_size to at least 100m for this site, then run nginx -t and reload nginx.'
+            );
           } else if (xhr.status === 400) {
             try {
               const errorData = JSON.parse(xhr.responseText);
@@ -287,7 +289,7 @@ const RoomManager = ({ socket, onRoomJoined, authState, onLogout }) => {
         setError('Map upload failed: Network error');
       });
 
-      xhr.open('POST', '/api/upload-map-temp');
+      xhr.open('POST', `${getApiBaseUrl()}/api/upload-map-temp`);
       xhr.send(formData);
     }
   };
